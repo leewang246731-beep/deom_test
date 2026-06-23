@@ -4,7 +4,7 @@
 
 ## 一、系统架构总览
 
-采用 **五层微服务 + AI 编排** 架构：
+采用 **模块化单体 + AI 编排** 架构（前端 / 网关 / 服务 / AI 引擎 / 数据 五层逻辑分层；后端为单体 FastAPI，按模块拆分 router/service，未拆分独立微服务进程）：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -15,7 +15,7 @@
                        │ HTTPS/WSS
 ┌──────────────────────┴──────────────────────────────────┐
 │                    Gateway Layer                         │
-│  Nginx: 路由/限流/CORS · Kong: API网关 · JWT验证        │
+│  Nginx: 反向代理/路由/限流/CORS · 后端中间件: JWT验证     │
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────┴──────────────────────────────────┐
@@ -25,7 +25,7 @@
 │  │Service  │ │Service  │ │Service  │ │Service  │      │
 │  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘      │
 │       └───────────┴───────────┴───────────┘            │
-│                   Service Bus (RabbitMQ)                 │
+│        模块直接调用（单体内）· RabbitMQ 异步事件(二期起) │
 └──────────────────────┬──────────────────────────────────┘
                        │
 ┌──────────────────────┴──────────────────────────────────┐
@@ -102,24 +102,25 @@
 ## 三、部署架构
 
 ```
-┌────────────── Nginx (:80/:443) ──────────────┐
-│  /api/*    → backend:8000                     │
-│  /ws/*     → backend:8000 (WebSocket)         │
-│  /admin/*  → frontend-admin:5173              │
-│  /*        → frontend-consumer:5173           │
+┌────────────── Nginx (:8080) ──────────────────┐
+│  /api/v1/* → backend:8010                      │
+│  /ws/*     → backend:8010 (WebSocket)          │
+│  /admin/*  → 管理端静态产物 (dist)             │
+│  /*        → 消费者端静态产物 (dist)           │
 └───────────────────────────────────────────────┘
 
-Docker Compose Services:
-  - frontend-consumer   (Vue3 消费者端 :5173)
-  - frontend-admin      (Vue3 管理端 :5174)
-  - backend             (FastAPI :8000)
-  - celery-worker       (Celery Worker)
-  - celery-beat         (Celery Beat 定时任务)
-  - mysql               (MySQL 8.0 :3306)
+说明：开发环境用 Vite dev server（consumer :5173 / admin :5174）+ 代理；
+生产环境前端构建为静态文件由 Nginx 直接托管，不挂 dev server。
+
+Docker Compose Services（端口对齐 CONFIG.md）:
+  - backend             (FastAPI :8010)
+  - mysql               (MySQL 8.0 :3308→3306)
   - chromadb            (ChromaDB :8001)
-  - redis               (Redis 7 :6379)
-  - rabbitmq            (RabbitMQ :5672)
-  - nginx               (Nginx :80)
+  - redis               (Redis 7 :6379, DB=1)
+  - nginx               (Nginx :8080, 托管前端静态产物)
+  - celery-worker       (Celery Worker，二期起)
+  - celery-beat         (Celery Beat 定时任务，二期起)
+  - rabbitmq            (RabbitMQ :5672，二期起)
 ```
 
 ---

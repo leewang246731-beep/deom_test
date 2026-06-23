@@ -160,7 +160,7 @@ WebSocket 消息协议：
   "content": "这款手机配备 5000mAh 电池...",
   "intent": "product_inquiry",
   "agent": "customer_service",
-  "mode": "assist",                       // auto | assist ← 新增
+  "mode": "assist",                       // auto | assist | learn ← 新增
   "style": "expert",                      // 当前话术风格 ← 新增
   "suggestions": ["加入购物车", "查看评价"],
   "materials": [                          // 自动匹配的素材图 ← 新增
@@ -191,20 +191,7 @@ GET    /api/v1/promotions            # 进行中的活动
 GET    /api/v1/promotions/{id}       # 活动详情（含活动商品）
 ```
 
-### 3.11 学习系统（新增）
-
-```
-POST   /api/v1/learn/extract-top-seller # 销冠话术提炼 {chat_logs: [...]}
-POST   /api/v1/learn/update-knowledge   # 知识库自动更新 {product_id, source}
-POST   /api/v1/learn/style-finetune     # 风格微调 {style_id, corrections: [...]}
-GET    /api/v1/learn/correction-stats   # 修正统计 {agent_id, date_range}
-
-### 3.12 外部推送（新增）
-
-```
-POST   /api/v1/notify/send              # 发送消息 {target, platform, content}
-GET    /api/v1/notify/channels          # 可用推送渠道（钉钉/微信/飞书）
-```
+### 3.9 数据运营
 
 ```
 GET    /api/v1/analytics/dashboard   # 运营仪表盘
@@ -223,6 +210,22 @@ PUT    /api/v1/user/profile          # 更新资料
 GET    /api/v1/user/behaviors        # 行为记录 ?action=
 GET    /api/v1/user/favorites        # 收藏列表
 GET    /api/v1/user/browsing-history # 浏览历史
+```
+
+### 3.11 学习系统（新增）
+
+```
+POST   /api/v1/learn/extract-top-seller # 销冠话术提炼 {chat_logs: [...]}
+POST   /api/v1/learn/update-knowledge   # 知识库自动更新 {product_id, source}
+POST   /api/v1/learn/style-finetune     # 风格微调 {style_id, corrections: [...]}
+GET    /api/v1/learn/correction-stats   # 修正统计 {agent_id, date_range}
+```
+
+### 3.12 外部推送（新增）
+
+```
+POST   /api/v1/notify/send              # 发送消息 {target, platform, content}
+GET    /api/v1/notify/channels          # 可用推送渠道（钉钉/微信/飞书）
 ```
 
 ---

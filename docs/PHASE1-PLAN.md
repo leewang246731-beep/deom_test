@@ -127,11 +127,13 @@ D:\demo_test\
 | # | 动作 | 验证方式 |
 |---|------|---------|
 | 1.1 | 连接 MySQL，创建数据库 `CREATE DATABASE demo_test` | `SHOW DATABASES` 能看到 demo_test |
-| 1.2 | 执行 [数据库设计文档](docs/database.md) 中一期相关的 7 张表：`users`, `roles`, `user_roles`, `categories`, `products`, `product_skus`, `orders`, `order_items` | `SHOW TABLES` 能看到全部表 |
+| 1.2 | 执行 [数据库设计文档](database.md) 中一期相关的 9 张表：`users`, `roles`, `user_roles`, `categories`, `products`, `product_skus`, `orders`, `order_items`, `user_behaviors` | `SHOW TABLES` 能看到全部表 |
 | 1.3 | 插入种子数据：3 个分类、8 个商品、对应 SKU | `SELECT COUNT(*) FROM products` ≥ 8 |
 | 1.4 | 插入默认角色：consumer | `SELECT * FROM roles` |
 
-**✅ 验证点：** MySQL demo_test 库中 7 张表全部存在，种子数据可查询。
+> **为什么一期就要建 `user_behaviors`：** 步骤 5 的协同过滤 / 个性化推荐依赖用户浏览、加购行为数据。新系统初期该表为空，因此一期推荐**以"热门 + 语义相似"为主、协同过滤随行为数据积累逐步生效**（见步骤 5 说明）。
+
+**✅ 验证点：** MySQL demo_test 库中 9 张表全部存在，种子数据可查询。
 
 ---
 
@@ -166,7 +168,7 @@ D:\demo_test\
 | 3.1 | 编写 `models/user.py`（User ORM） | 数据库表已存在 |
 | 3.2 | 编写 `schemas/user_schemas.py`（RegisterRequest, LoginRequest, TokenResponse） | 类型校验通过 |
 | 3.3 | 编写 `services/auth_service.py`（注册/登录逻辑） | 单元测试 |
-| 3.4 | 编写 `routers/auth_router.py`（/auth/register, /auth/login, /auth/me） | `curl -X POST http://127.0.0.1:8010/api/auth/register -d '{"username":"test","password":"123456"}'` 返回 200 |
+| 3.4 | 编写 `routers/auth_router.py`（/auth/register, /auth/login, /auth/me） | `curl -X POST http://127.0.0.1:8010/api/v1/auth/register -d '{"username":"test","password":"123456"}'` 返回 200 |
 | 3.5 | 注册接口：检查用户名唯一、加密密码、返回 user id | 重复用户名返回 409 |
 | 3.6 | 登录接口：验证密码、生成 JWT access_token + refresh_token | 错误密码返回 401 |
 | 3.7 | /auth/me：验证 JWT，返回当前用户信息 | 无 Token 返回 401 |
@@ -195,10 +197,10 @@ D:\demo_test\
 |---|------|---------|
 | 4.1 | 编写 `models/category.py` + `models/product.py` | ORM 模型正确 |
 | 4.2 | 编写 `schemas/product_schemas.py` | Pydantic 校验 |
-| 4.3 | `GET /api/categories` 返回树形分类 | curl 返回三级树 JSON |
-| 4.4 | `GET /api/products?category=&keyword=&sort=&page=` | 分页+筛选+排序 |
-| 4.5 | `GET /api/products/{id}` 返回 SPU 详情 + SKU 列表 | 含所有规格组合 |
-| 4.6 | `GET /api/products/search?q=手机` 关键词+语义搜索 | 返回相关商品 |
+| 4.3 | `GET /api/v1/categories` 返回树形分类 | curl 返回三级树 JSON |
+| 4.4 | `GET /api/v1/products?category=&keyword=&sort=&page=` | 分页+筛选+排序 |
+| 4.5 | `GET /api/v1/products/{id}` 返回 SPU 详情 + SKU 列表 | 含所有规格组合 |
+| 4.6 | `GET /api/v1/products/search?q=手机` 关键词+语义搜索 | 返回相关商品 |
 | 4.7 | 商品创建时自动生成 BGE-M3 Embedding 写入 ChromaDB | ChromaDB 有向量数据 |
 | 4.8 | 为种子数据批量生成 Embedding | 8 个种子商品全部可被语义搜索 |
 
@@ -222,26 +224,29 @@ D:\demo_test\
 
 **目标：** 首页混合推荐（热门+个性化+协同过滤）、商品详情页关联推荐。
 
+> **冷启动策略：** 新系统初期无行为/订单数据，协同过滤无数据可算。一期推荐**以"热门 + 语义相似"为主**作为兜底，随 `user_behaviors` 与 `orders` 数据积累，个性化与协同过滤逐步生效。因此先做埋点（5.2），再做依赖数据的算法。
+
 **后端任务：**
 
 | # | 动作 | 验证方式 |
 |---|------|---------|
 | 5.1 | 编写 `services/recommend_service.py` | — |
-| 5.2 | 协同过滤：基于用户行为矩阵计算 ItemCF | `GET /api/recommend/home` 返回协同过滤结果 |
-| 5.3 | 语义检索：基于 ChromaDB 查询相似商品 | `GET /api/recommend/similar/{id}` 返回相似商品 |
-| 5.4 | 热门排行：从 orders 表聚合销量写入 Redis ZSet | `GET /api/recommend/hot` 返回排行榜 |
-| 5.5 | 个性化推荐：基于用户浏览历史加权 | 浏览商品后推荐偏好变化 |
-| 5.6 | `GET /api/recommend/home` 混合返回多 Section（热门/个性化/协同） | 响应含 sections 数组 |
-| 5.7 | `GET /api/recommend/product/{id}` 商品详情页推荐 | 含"看了又看""买了又买" |
+| 5.2 | 行为埋点：浏览/搜索/加购写入 `user_behaviors`（详情页、加购接口埋点） | `SELECT COUNT(*) FROM user_behaviors` 随操作增长 |
+| 5.3 | 语义检索：基于 ChromaDB 查询相似商品（无行为数据也可用） | `GET /api/v1/recommend/similar/{id}` 返回相似商品 |
+| 5.4 | 热门排行：从 orders 表聚合销量写入 Redis ZSet，无订单时按 `sold_count` 兜底 | `GET /api/v1/recommend/hot` 返回排行榜 |
+| 5.5 | 协同过滤：基于 `user_behaviors` 行为矩阵计算 ItemCF，数据不足时回退热门 | 有行为后 `GET /api/v1/recommend/home` 出现协同过滤 Section |
+| 5.6 | 个性化推荐：基于用户浏览历史加权，新用户回退热门 | 浏览商品后推荐偏好变化 |
+| 5.7 | `GET /api/v1/recommend/home` 混合返回多 Section（热门/个性化/协同） | 响应含 sections 数组 |
+| 5.8 | `GET /api/v1/recommend/product/{id}` 商品详情页推荐 | 含"看了又看""买了又买" |
 
 **前端任务：**
 
 | # | 动作 | 验证方式 |
 |---|------|---------|
-| 5.8 | `api/recommend.js` | API 连通 |
-| 5.9 | `Home.vue` 推荐 Section 渲染 | 可看到"为你推荐""热门商品"等分区 |
-| 5.10 | `ProductDetail.vue` 底部推荐区域 | 详情页下方展示推荐商品 |
-| 5.11 | 推荐商品卡片点击跳转 | 点击推荐商品进入对应详情页 |
+| 5.9 | `api/recommend.js` | API 连通 |
+| 5.10 | `Home.vue` 推荐 Section 渲染 | 可看到"为你推荐""热门商品"等分区 |
+| 5.11 | `ProductDetail.vue` 底部推荐区域 | 详情页下方展示推荐商品 |
+| 5.12 | 推荐商品卡片点击跳转 | 点击推荐商品进入对应详情页 |
 
 **✅ 验证点：** 首页有多个推荐分区、详情页有"看了又看"、浏览某类商品后推荐偏好变化。
 
@@ -256,12 +261,12 @@ D:\demo_test\
 | # | 动作 | 验证方式 |
 |---|------|---------|
 | 6.1 | 编写 `services/cart_service.py`（Redis Hash 操作） | — |
-| 6.2 | `GET /api/cart` 返回购物车商品列表 + 库存状态 | curl 返回 [{sku_id, name, specs, price, quantity, stock}] |
-| 6.3 | `POST /api/cart/items` 添加商品，检查库存 | 超库存返回 409 |
-| 6.4 | `PUT /api/cart/items/{sku_id}` 修改数量 | 数量变化 |
-| 6.5 | `DELETE /api/cart/items/{sku_id}` 删除 | 购物车移除 |
+| 6.2 | `GET /api/v1/cart` 返回购物车商品列表 + 库存状态 | curl 返回 [{sku_id, name, specs, price, quantity, stock}] |
+| 6.3 | `POST /api/v1/cart/items` 添加商品，检查库存 | 超库存返回 409 |
+| 6.4 | `PUT /api/v1/cart/items/{sku_id}` 修改数量 | 数量变化 |
+| 6.5 | `DELETE /api/v1/cart/items/{sku_id}` 删除 | 购物车移除 |
 | 6.6 | 未登录购物车存 localStorage，登录后合并到 Redis | 合并逻辑正确 |
-| 6.7 | `POST /api/cart/checkout-check` 结算预检（价格/库存/优惠） | 返回可结算/不可结算+原因 |
+| 6.7 | `POST /api/v1/cart/checkout-check` 结算预检（价格/库存/优惠） | 返回可结算/不可结算+原因 |
 
 **前端任务：**
 
@@ -286,12 +291,12 @@ D:\demo_test\
 |---|------|---------|
 | 7.1 | 编写 `models/order.py`（Order + OrderItem） | ORM 正确 |
 | 7.2 | 编写 `services/order_service.py` | — |
-| 7.3 | `POST /api/orders` 创建订单：扣减库存(Redis分布式锁)、生成订单号、清空购物车 | 并发创建不超卖 |
-| 7.4 | `GET /api/orders` 订单列表 ?status=&page= | 分页过滤 |
-| 7.5 | `GET /api/orders/{id}` 订单详情（含商品明细） | 完整订单数据 |
-| 7.6 | `POST /api/orders/{id}/pay` Mock 支付：直接标记已支付 | 状态变为"已支付" |
-| 7.7 | `POST /api/orders/{id}/cancel` 取消订单：恢复库存 | 库存恢复 |
-| 7.8 | `POST /api/orders/{id}/confirm` 确认收货 | 状态→已完成 |
+| 7.3 | `POST /api/v1/orders` 创建订单：扣减库存(Redis分布式锁)、生成订单号、清空购物车 | 并发创建不超卖 |
+| 7.4 | `GET /api/v1/orders` 订单列表 ?status=&page= | 分页过滤 |
+| 7.5 | `GET /api/v1/orders/{id}` 订单详情（含商品明细） | 完整订单数据 |
+| 7.6 | `POST /api/v1/orders/{id}/pay` Mock 支付：直接标记已支付 | 状态变为"已支付" |
+| 7.7 | `POST /api/v1/orders/{id}/cancel` 取消订单：恢复库存 | 库存恢复 |
+| 7.8 | `POST /api/v1/orders/{id}/confirm` 确认收货 | 状态→已完成 |
 
 **前端任务：**
 
@@ -329,12 +334,12 @@ D:\demo_test\
 ## 六、每个步骤的验证检查表
 
 ### 步骤1 验证
-- [ ] `mysql -u root -p121300 -e "USE demo_test; SHOW TABLES;"` 显示 7+ 张表
+- [ ] `mysql -u root -p -e "USE demo_test; SHOW TABLES;"` 显示 9 张表（密码交互输入，勿写命令行）
 - [ ] `SELECT COUNT(*) FROM products` ≥ 8
 
 ### 步骤2 验证
 - [ ] `http://127.0.0.1:8010/docs` 可访问
-- [ ] `http://127.0.0.1:8010/api/health` 返回 `{"status":"ok"}`
+- [ ] `http://127.0.0.1:8010/api/v1/health` 返回 `{"status":"ok"}`
 - [ ] 后端日志无 MySQL/Redis/ChromaDB 连接错误
 
 ### 步骤3 验证
@@ -345,20 +350,21 @@ D:\demo_test\
 - [ ] 无 Token 请求 `/auth/me` 返回 401
 
 ### 步骤4 验证
-- [ ] `/api/categories` 返回树形 JSON（3级）
-- [ ] `/api/products?category=1` 返回该分类商品
-- [ ] `/api/products?keyword=手机` 返回匹配商品
-- [ ] `/api/products/{id}` 含 SKU 列表+库存
-- [ ] `/api/products/search?q=拍照` 语义搜索返回相关商品
+- [ ] `/api/v1/categories` 返回树形 JSON（3级）
+- [ ] `/api/v1/products?category=1` 返回该分类商品
+- [ ] `/api/v1/products?keyword=手机` 返回匹配商品
+- [ ] `/api/v1/products/{id}` 含 SKU 列表+库存
+- [ ] `/api/v1/products/search?q=拍照` 语义搜索返回相关商品
 
 ### 步骤5 验证
-- [ ] `/api/recommend/home` 返回 sections 数组
-- [ ] `/api/recommend/product/{id}` 返回关联推荐
-- [ ] `/api/recommend/similar/{id}` 返回语义相似商品
-- [ ] `/api/recommend/hot` 返回热门排行
+- [ ] `/api/v1/recommend/home` 返回 sections 数组
+- [ ] `/api/v1/recommend/product/{id}` 返回关联推荐
+- [ ] `/api/v1/recommend/similar/{id}` 返回语义相似商品
+- [ ] `/api/v1/recommend/hot` 返回热门排行
+- [ ] 浏览/加购后 `user_behaviors` 有数据写入
 
 ### 步骤6 验证
-- [ ] 加购后 `GET /api/cart` 返回商品列表
+- [ ] 加购后 `GET /api/v1/cart` 返回商品列表
 - [ ] 超出库存加购返回 409
 - [ ] 结算预检返回可结算状态
 - [ ] 前端购物车角标数字正确

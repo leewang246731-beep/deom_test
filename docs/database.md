@@ -154,8 +154,8 @@ CREATE TABLE product_skus (
     product_id  BIGINT NOT NULL,
     sku_code    VARCHAR(50) UNIQUE NOT NULL,
     specs       JSON NOT NULL,                 -- {"颜色":"黑色","内存":"256GB"}
-    price       DECIMAL(10,2) NOT NULL,        -- 售价（分）
-    cost_price  DECIMAL(10,2),                 -- 成本价
+    price       DECIMAL(10,2) NOT NULL,        -- 售价（元，全项目金额统一用元）
+    cost_price  DECIMAL(10,2),                 -- 成本价（元，仅内部，API 不返回）
     stock       INT DEFAULT 0,
     sold_count  INT DEFAULT 0,
     status      TINYINT DEFAULT 1,

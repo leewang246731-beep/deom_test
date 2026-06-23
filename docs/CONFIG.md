@@ -24,14 +24,17 @@
 
 ## 二、共享配置（两个项目共用，无需修改）
 
+> ⚠️ **密钥不写入文档/不入库**：下表中 MySQL 密码、DashScope Key 等敏感值一律放在本地 `.env`（已加入 `.gitignore`），此处仅说明来源，不写明文。
+
 | 配置项 | 值 | 来源 |
 |--------|-----|------|
 | MySQL Host | `127.0.0.1` | project_test .env |
 | MySQL User | `root` | project_test .env |
-| MySQL Password | `121300` | project_test .env |
+| MySQL Password | `<见本地 .env，勿入库>` | project_test .env |
 | Redis Host | `127.0.0.1` | 本地默认 |
 | Redis Port | `6379` | 本地默认 |
-| DashScope API Key | `sk-b67...474c` | project_test .env |
+| Redis DB 编号 | `1`（project_test 用 `0`） | 用独立 DB 号隔离 |
+| DashScope API Key | `<见本地 .env，勿入库>` | project_test .env |
 | JWT Algorithm | `HS256` | project_test config |
 | Access Token 有效期 | `30` 分钟 | project_test config |
 | Refresh Token 有效期 | `7` 天 | project_test config |
@@ -51,8 +54,10 @@
 | 数据库名 | project_test | **demo_test** | 独立数据库 |
 | Backend 端口 | 8000 | **8010** | 互不冲突 |
 | Frontend 端口 | 80 | **8080** | 互不冲突 |
-| JWT Secret | dev-secret-... | **demo-ecom-secret-2026** | 独立密钥 |
-| RabbitMQ 端口 | — | **5672** | 新项目需要消息队列 |
+| API 前缀 | /api/v1 | **/api/v1** | 全项目统一带 v1 |
+| Redis DB 号 | 0 | **1** | 同实例不同 DB 号隔离 |
+| JWT Secret | `<本地 .env>` | `<本地 .env，勿入库>` | 独立密钥，不写明文 |
+| RabbitMQ 端口 | — | **5672**（二期起用） | 一期核心链路不需要 |
 
 ---
 
@@ -74,37 +79,41 @@
 ## 五、Backend .env 文件（可直接使用）
 
 ```env
+# ⚠️ 本文件含密钥，必须加入 .gitignore，切勿提交到版本库。
+# 下方所有 <...> 占位符请在本地填写真实值。
+
 # ===== 数据库配置 (MySQL 8.0) =====
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=121300
+DB_PASSWORD=<your-mysql-password>
 DB_NAME=demo_test
 
 # ===== JWT 鉴权配置 =====
-JWT_SECRET=demo-ecom-secret-2026-please-change-in-production
+JWT_SECRET=<generate-a-random-secret>
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 
 # ===== 项目配置 =====
-API_PREFIX=/api
+API_PREFIX=/api/v1
 PAGE_SIZE=10
 BCRYPT_ROUNDS=12
 
 # ===== Redis 配置 =====
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
+REDIS_DB=1
 REDIS_PASSWORD=
 
-# ===== RabbitMQ 配置 =====
+# ===== RabbitMQ 配置（二期起启用，一期可留空不连接） =====
 RABBITMQ_HOST=127.0.0.1
 RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASSWORD=guest
 
 # ===== RAG / DashScope 配置 =====
-DASHSCOPE_API_KEY=sk-b67...474c
+DASHSCOPE_API_KEY=<your-dashscope-key>
 CHROMA_PERSIST_DIR=./data/chroma
 UPLOAD_DIR=./data/uploads
 UPLOAD_MAX_MB=50
@@ -172,6 +181,7 @@ demo_test 项目（新）              project_test 项目（已有）
 | Docker 容器名不冲突 | ✅ |
 | Docker 网络不冲突 | ✅ |
 | Docker Volume 不冲突 | ✅ |
-| DashScope Key 共用 | ✅ |
-| Redis 共用 (不同 key 前缀隔离) | ✅ |
+| DashScope Key 共用（仅存本地 .env，不入库） | ✅ |
+| Redis 共用 (不同 DB 号 + key 前缀双重隔离) | ✅ |
 | 本地 MySQL 共用 (不同库) | ✅ |
+| 所有密钥不写入文档/不提交 git | ✅ |
