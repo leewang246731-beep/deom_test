@@ -1,117 +1,62 @@
 # Vibe Coding 提示词
 
-> 使用以下提示词快速用 AI 编程助手搭建项目骨架
+> 使用以下提示词快速用 AI 编程助手搭建项目
 
 ---
 
-## 一期：核心链路
+## 一期：SaaS 骨架 + Mock 模式 + AI 话术
 
 ```
-请帮我搭建一个智能电商全链路平台的核心骨架：
+项目：多平台智能托管 SaaS 平台
+技术栈：Vue3 + Vite + Element Plus + FastAPI + SQLAlchemy + MySQL + ChromaDB + Redis + Celery
 
-技术栈：Vue3 + Vite + Element Plus + FastAPI + SQLAlchemy + MySQL + ChromaDB + Redis
+核心架构：
+1. 多租户：merchants 表 + merchant_users（admin/manager/service），所有查询强制 merchant_id 过滤
+2. Platform Connector 抽象层：base.py ABC → mock.py (Faker) / taobao.py (NotImplemented)
+3. Mock 模式：Faker zh_CN 生成真实感中文数据，无需外部平台
+4. AI 引擎：BGE-M3 向量化 + ChromaDB 语义检索 + 千问 LLM 生成话术
 
-后端 (FastAPI)：
-1. 用户系统：注册/登录/JWT认证/角色管理（消费者/客服/管理员）
-2. 商品中心：SPU/SKU管理，三级分类树，商品CRUD，多规格配置
-3. 商品向量化：创建/更新商品时自动用 BGE-M3 生成 embedding 并写入 ChromaDB
-4. 智能推荐 API：协同过滤 + 语义检索 + 热门排行 + 个性化
-5. 购物车：Redis 存储，加购/修改/删除/结算预检
-6. 订单：创建订单(分布式锁防重)/订单列表/详情/取消/支付回调
+后端：
+1. 商户系统：merchants / merchant_users（admin/manager/service，删除 consumer）
+2. 店铺管理：platform_shops 绑定/解绑/同步，Mock 模式一键创建
+3. 商品库：external_products 同步→向量化，支持语义搜索
+4. 订单中心：external_orders 列表/详情/售后(Mock)/催单
+5. 客服工作台：WebSocket 实时推送，conversations 会话管理
+6. AI 话术：POST /ai/suggest（商品知识+历史话术→3条建议，<2s）
+7. 催单：POST /ai/campaign/pending-payment（千人千面话术+模拟发送）
+8. Celery 定时同步：每30分钟拉取最新数据
+9. 种子脚本：1商户+2店铺+100商品+60会话+200订单
 
-前端 (Vue3)：
-1. 商城首页：轮播推荐 + 分类导航 + 热门推荐 + 个性化推荐
-2. 商品中心：商品列表(分页+筛选+排序) + 商品详情(SKU选择+图文)
-3. 购物车：购物车列表 + 结算页(优惠券+地址)
-4. 用户中心：登录注册 + 个人信息 + 我的订单
+前端（管理后台）：
+1. 左侧菜单 + 顶部导航布局，删除所有 C 端页面
+2. 工作台 /dashboard：统计卡片（订单量/会话数/AI采纳率/同步状态）
+3. 店铺管理 /shops：列表 + Mock 一键绑定弹窗
+4. 商品库 /products：表格 + 语义搜索框
+5. 订单中心 /orders：按平台筛选 + 售后操作
+6. 客服工作台 /service：三栏（会话列表 | 聊天窗口 | AI话术面板）
+7. AI配置 /ai-config：占位页面
 
-请先创建项目骨架，包含完整的目录结构和前后端基础路由。
-```
-
----
-
-## 二期：AI 赋能
-
-```
-在一期基础上添加 AI 引擎层：
-
-后端新增：
-1. 意图识别服务：BERT 模型分类 12 类意图
-   product_inquiry / product_recommend / product_compare / size_recommend
-   order_query / purchase_intent / payment_reminder / after_sales
-   complaint / price_compare / promotion_inquiry / chitchat
-
-2. Master Agent：
-   - 按意图路由到子 Agent（LangGraph 编排）
-   - 场景策略引擎（售前/售后/投诉/催付策略匹配）
-   - 自动模式判断（auto/assist/learn 三模式 + 排除规则）
-   - 话术风格路由（场景+角色独立配置）
-
-3. 客服 Agent：
-   - RAG 知识问答（ChromaDB + BM25 混合检索 + BGE-Reranker 精排）
-   - 多商品对比、素材图自动匹配发送、话术风格注入
-   - 支持采纳学习：客服修改后记录差异，定期优化
-
-4. 推荐 Agent：卖点提炼、尺码推荐、搭配推荐、协同过滤、语义检索
-5. 订单 Agent：下单引导、催单催付(千人千面文字+图片)、物流跟踪
-6. 营销 Agent：活动匹配、优惠推荐、比价分析、钉钉/微信/飞书推送
-7. 工单 Agent：创建/分配/流转、紧急升级
-8. 学习 Agent（离线）：销冠话术提炼、知识库自动更新、风格微调
-
-9. 知识库管理：后台 CRUD、关联商品、商品图OCR自动入知识库
-10. WebSocket 实时对话端点
-
-前端新增：
-1. AI 助手页面：对话窗口(WebSocket) + 意图标签 + 素材图 + 推荐商品卡片
-2. 客服工作台：实时对话列表 + 工单创建 + 采纳/修改/发送按钮
-3. 知识库管理页 + 素材图库管理
+请搭建完整项目骨架，从目录结构开始...
 ```
 
 ---
 
-## 三期：运营闭环
+## 快速启动（种子脚本后）
 
 ```
-在二期基础上添加运营模块：
+# 1. 安装依赖
+cd backend && pip install -r requirements.txt
 
-后端新增：
-1. 工单系统：创建/分配/流转/评论/满意度/SLA监控
-2. 营销活动：优惠券(满减/折扣/直减)、限时秒杀、拼团
-3. 数据运营面板 API：
-   - 客服统计：咨询量/响应时间/满意度/热门问题
-   - 商品分析：销量排行/分类占比/转化率
-   - 用户分析：新增活跃留存/RFM四象限/转化漏斗
-4. 用户行为追踪：浏览/搜索/加购/购买/咨询行为记录
-5. RFM 模型：每日定时计算
+# 2. 初始化种子数据
+python seed.py
+# 输出: 种子数据生成成功！请使用 admin/123456 登录
 
-前端新增：
-1. 数据看板：ECharts（综合 + 客服 + 商品 + 用户四个子看板）
-2. 工单管理：列表 + 详情 + 流转 + 评价
-3. 营销中心：优惠券管理 + 活动配置 + 秒杀页面
+# 3. 启动后端
+uvicorn app.main:app --reload --port 8010
 
-数据闭环：客服高频问题标记→优化知识库；高咨询低转化商品标记→优化详情
-```
+# 4. 启动前端
+cd frontend && npm install && npm run dev -- --port 8080
 
----
-
-## 快速启动
-
-```
-项目：智能电商全链路平台
-技术栈：Vue3 + Vite + Element Plus + FastAPI + SQLAlchemy + MySQL 8.0 + ChromaDB + Redis 7 + RabbitMQ
-AI 引擎：LangGraph + LlamaIndex + BGE-M3 + BGE-Reranker + OpenAI/通义千问 + 千问VL
-
-核心功能：
-1. 商品中心：SPU/SKU管理、三级分类、多规格、库存同步、商品向量化、商品图OCR
-2. 智能推荐：协同过滤、语义检索、卖点提炼、尺码推荐、搭配推荐
-3. 智能客服：RAG问答、12类意图识别、千人千面话术、风格定制、素材图自动、商品对比、全自动/辅助/学习三模式
-4. Master Agent：意图路由、场景策略、自动模式、风格路由、多Agent编排
-5. 购物车/订单：加购结算、优惠券、支付、物流、催单催付
-6. 营销活动：优惠券、秒杀、拼团、消息推送
-7. 工单/售后：流转、分配、紧急升级、满意度
-8. 学习系统：销冠话术提炼、知识库更新、修正闭环
-9. 数据运营：客服统计、商品分析、用户分析、转化漏斗、RFM
-10. 统一用户中心：JWT认证、角色权限、用户画像
-
-请帮我搭建完整项目，从目录结构开始...
+# 5. 浏览器打开 http://localhost:8080
+# 登录 admin/123456 → 所有页面有 Mock 数据 → AI 话术可正常演示
 ```

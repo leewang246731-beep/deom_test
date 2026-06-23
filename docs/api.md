@@ -1,15 +1,14 @@
-# API 规划 · 智能电商全链路平台
+# API 规划 · 多平台智能托管 SaaS 平台
 
 ---
 
-## 一、API 设计规范
+## 一、规范
 
 - **Base URL:** `/api/v1`
-- **认证方式:** JWT Bearer Token（Header: `Authorization: Bearer <token>`）
-- **数据格式:** JSON（请求/响应）
-- **分页规范:** `?page=1&page_size=20` → 响应含 `total`, `page`, `page_size`, `items`
-- **错误格式:** `{"code": 40001, "message": "...", "detail": {}}`
-- **WebSocket:** `/ws/chat?token=<jwt>`
+- **认证:** JWT Bearer Token，内含 `merchant_id` + `user_id` + `role`
+- **多租户:** 所有数据查询通过 `Depends(get_current_merchant)` 强制携带 `merchant_id`
+- **分页:** `?page=1&page_size=20` → `{"total": N, "page": 1, "page_size": 20, "items": [...]}`
+- **WebSocket:** `/ws/service?token=<jwt>`
 
 ---
 
@@ -17,237 +16,141 @@
 
 | 模块 | 接口数 | 说明 |
 |------|:-----:|------|
-| 认证鉴权 | 5 | 登录/注册/刷新/登出/个人信息 |
-| 商品中心 | 10 | 分类 + SPU/SKU + 搜索 + 属性 |
-| 智能推荐 | 8 | 推荐 + 卖点 + 尺码 + 搭配 + 比价 |
-| 购物车 | 4 | CRUD + 结算预检 |
-| 订单 | 9 | CRUD + 支付 + 物流 + **催单催付** |
-| 智能客服 | 8 | 聊天(WS) + 历史 + 意图 + 知识库 + **对比/素材/采纳** |
-| 工单售后 | 7 | CRUD + 流转 + 评价 + **紧急升级** |
-| 营销活动 | 6 | 优惠券 + 活动 + **消息推送** |
-| 学习系统 | 4 | **销冠提炼/知识更新/风格微调/修正反馈** |
-| 数据运营 | 6 | 用户分析 + 商品分析 + 客服统计 + 转化漏斗 |
-| 用户中心 | 5 | 画像 + 行为 + 收藏 + 浏览历史 |
+| 认证 | 3 | 登录/刷新/登出（仅 admin/manager/service） |
+| 店铺管理 | 5 | 绑定/解绑/列表/同步触发 |
+| 商品库 | 4 | 列表+筛选/语义搜索/详情/手动同步 |
+| 订单中心 | 5 | 列表+筛选/详情/售后/催单 |
+| 客服工作台 | 5 | 会话列表/详情/WS实时/AI话术 |
+| AI 引擎 | 3 | 话术建议/催单话术/搜索 |
+| 数据看板 | 3 | 工作台指标/订单趋势/客服统计 |
 
-**总计：约 72 个 REST 接口 + 2 个 WebSocket 端点**
+**总计：约 28 个 REST 接口 + 1 个 WebSocket 端点**
 
 ---
 
-## 三、核心接口详情
+## 三、接口详情
 
-### 3.1 认证鉴权
-
-```
-POST   /api/v1/auth/register         # 注册
-POST   /api/v1/auth/login            # 登录
-POST   /api/v1/auth/refresh          # 刷新 Token
-POST   /api/v1/auth/logout           # 登出
-GET    /api/v1/auth/me               # 当前用户信息
-```
-
-### 3.2 商品中心
+### 3.1 认证
 
 ```
-GET    /api/v1/categories            # 分类树
-GET    /api/v1/categories/{id}       # 分类详情
-GET    /api/v1/products              # 商品列表 ?category=&keyword=&sort=&page=&page_size=
-GET    /api/v1/products/{id}         # 商品详情（含 SKU 列表）
-GET    /api/v1/products/{id}/skus    # SKU 列表
-GET    /api/v1/products/search       # 全文搜索 + 向量语义搜索
-POST   /api/v1/products              # [管理] 创建商品
-PUT    /api/v1/products/{id}         # [管理] 更新商品
-DELETE /api/v1/products/{id}         # [管理] 下架商品
-POST   /api/v1/products/{id}/vectorize  # [管理] 生成/更新商品向量
+POST   /api/v1/auth/login          # 登录 {username, password} → {access_token, refresh_token}
+POST   /api/v1/auth/refresh        # 刷新 Token
+POST   /api/v1/auth/logout         # 登出
 ```
 
-### 3.3 智能推荐（增强版）
+> 仅 `admin` / `manager` / `service` 可登录。`consumer` 角色不存在。
+
+JWT Payload：
+```json
+{
+  "sub": "1",
+  "merchant_id": 1,
+  "role": "admin",
+  "exp": 1719000000
+}
+```
+
+### 3.2 店铺管理
 
 ```
-GET    /api/v1/recommend/home           # 首页混合推荐
-GET    /api/v1/recommend/product/{id}   # 商品详情页推荐
-GET    /api/v1/recommend/personalized   # 个性化推荐
-GET    /api/v1/recommend/hot            # 热门排行
-GET    /api/v1/recommend/similar/{id}   # 相似商品
-POST   /api/v1/recommend/selling-points # 商品卖点提炼 {product_id} ← 新增
-POST   /api/v1/recommend/size           # 尺码推荐 {product_id, height, weight, ...} ← 新增
-POST   /api/v1/recommend/outfit         # 搭配推荐 {product_id} ← 新增
+GET    /api/v1/shops               # 店铺列表
+POST   /api/v1/shops               # 绑定店铺 {platform_type, shop_name}
+DELETE /api/v1/shops/{id}          # 解绑店铺
+POST   /api/v1/shops/{id}/sync     # 手动触发同步
+GET    /api/v1/shops/{id}/status   # 同步状态
 ```
 
-推荐响应格式：
+### 3.3 商品库
+
+```
+GET    /api/v1/products            # 商品列表 ?shop_id=&category=&keyword=&price_min=&price_max=&page=
+GET    /api/v1/products/search     # 语义搜索 ?q=适合送礼的电子产品
+GET    /api/v1/products/{id}       # 商品详情
+POST   /api/v1/products/sync/{shop_id}  # 手动同步该店铺商品
+```
+
+语义搜索响应：
 ```json
 {
   "code": 200,
   "data": {
-    "sections": [
-      {
-        "type": "personalized",
-        "title": "为你推荐",
-        "reason": "基于你的浏览偏好",
-        "products": [
-          {
-            "id": 1,
-            "name": "iPhone 15 Pro",
-            "price": 7999.00,
-            "main_image": "...",
-            "score": 0.95,
-            "reason": "你最近浏览过手机"
-          }
-        ]
-      },
-      {
-        "type": "collaborative",
-        "title": "买过的人也买了",
-        "products": [...]
-      }
+    "query": "适合送礼的电子产品",
+    "results": [
+      {"id": 1, "title": "华为Mate70 Pro", "score": 0.92, "shop_name": "模拟数码专营店"},
+      {"id": 2, "title": "Apple AirPods Pro", "score": 0.88, "shop_name": "模拟数码专营店"}
     ]
   }
 }
 ```
 
-### 3.4 购物车
+### 3.4 订单中心
 
 ```
-GET    /api/v1/cart                   # 购物车列表
-POST   /api/v1/cart/items             # 添加商品 {sku_id, quantity}
-PUT    /api/v1/cart/items/{sku_id}    # 修改数量
-DELETE /api/v1/cart/items/{sku_id}    # 删除商品
-POST   /api/v1/cart/checkout-check    # 结算预检（库存/价格/优惠）
+GET    /api/v1/orders              # 订单列表 ?shop_id=&platform_type=&status=&page=
+GET    /api/v1/orders/{id}         # 订单详情
+POST   /api/v1/orders/{id}/refund  # 售后处理（Redis 分布式锁防并发）
+GET    /api/v1/orders/pending-payment  # 未支付订单（催单用）
+POST   /api/v1/orders/pending-payment/remind  # 批量催单
 ```
 
-### 3.5 订单
+### 3.5 客服工作台
 
 ```
-POST   /api/v1/orders                 # 创建订单
-GET    /api/v1/orders                 # 订单列表 ?status=
-GET    /api/v1/orders/{id}            # 订单详情
-POST   /api/v1/orders/{id}/cancel     # 取消订单
-POST   /api/v1/orders/{id}/pay        # 发起支付
-POST   /api/v1/orders/pay-callback    # 支付回调（支付宝/微信）
-GET    /api/v1/orders/{id}/logistics  # 物流信息
-POST   /api/v1/orders/{id}/confirm    # 确认收货
+WS     /ws/service                 # 实时会话 WebSocket
+GET    /api/v1/conversations       # 会话列表 ?shop_id=&handled_status=&page=
+GET    /api/v1/conversations/{id}  # 会话详情（含完整 messages_json）
+POST   /api/v1/conversations/{id}/assign  # 分配给我
+POST   /api/v1/conversations/{id}/close   # 关闭会话
 ```
 
-### 3.6 智能客服（增强版）
+### 3.6 AI 引擎
 
 ```
-WS     /ws/chat                       # WebSocket 实时对话
-GET    /api/v1/chat/history           # 历史对话 ?session_id=&page=
-POST   /api/v1/chat/intent            # 意图识别 {text: "..."}
-POST   /api/v1/chat/search-kb         # 知识库检索 {query: "..."}
-POST   /api/v1/chat/compare           # 商品对比 {product_ids: [1,2,3]}
-POST   /api/v1/chat/send-material     # 手动触发素材图 {product_id, image_type}
-POST   /api/v1/chat/adopt             # 采纳话术 {message_id, original, corrected?}
-POST   /api/v1/chat/session-mode      # 设置会话模式 {mode: "auto"|"assist"}
+POST   /api/v1/ai/suggest          # 话术建议
+        Body: {shop_id, buyer_question, conversation_history, product_id?}
+        → {suggestions: [{content, source, confidence}]}
+
+POST   /api/v1/ai/campaign/pending-payment  # 催单话术生成
+        Body: {shop_id}
+        → {reminders: [{buyer_nick, product_title, script, sent}]}
+
+POST   /api/v1/ai/search           # 知识库语义搜索
+        Body: {query, shop_id?, top_k=5}
+        → {results: [{content, type, score}]}
 ```
 
-WebSocket 消息协议：
-```json
-// 客户端 → 服务端
-{
-  "type": "message",
-  "session_id": "uuid",
-  "content": "这款手机续航怎么样？",
-  "context": {                       // 可选：浏览上下文
-    "current_product_id": 123,
-    "page": "product_detail"
-  }
-}
-
-// 服务端 → 客户端（增强版）
-{
-  "type": "reply",
-  "session_id": "uuid",
-  "content": "这款手机配备 5000mAh 电池...",
-  "intent": "product_inquiry",
-  "agent": "customer_service",
-  "mode": "assist",                       // auto | assist | learn ← 新增
-  "style": "expert",                      // 当前话术风格 ← 新增
-  "suggestions": ["加入购物车", "查看评价"],
-  "materials": [                          // 自动匹配的素材图 ← 新增
-    {"type": "size_chart", "url": "...", "label": "尺码表"}
-  ],
-  "products": [...],
-  "auto_sent": false                      // 是否自动发送 ← 新增
-}
+AI 话术建议流程：
 ```
-
-### 3.7 工单售后
-
-```
-POST   /api/v1/tickets               # 创建工单
-GET    /api/v1/tickets               # 工单列表 ?status=&type=
-GET    /api/v1/tickets/{id}          # 工单详情
-PUT    /api/v1/tickets/{id}/status   # [管理] 更新状态
-POST   /api/v1/tickets/{id}/comments # 添加工单评论
-POST   /api/v1/tickets/{id}/rate     # 满意度评价
-```
-
-### 3.8 营销活动
-
-```
-GET    /api/v1/coupons               # 可用优惠券列表
-POST   /api/v1/coupons/{id}/claim    # 领取优惠券
-GET    /api/v1/promotions            # 进行中的活动
-GET    /api/v1/promotions/{id}       # 活动详情（含活动商品）
-```
-
-### 3.9 数据运营
-
-```
-GET    /api/v1/analytics/dashboard   # 运营仪表盘
-GET    /api/v1/analytics/users       # 用户分析（新增/活跃/留存）
-GET    /api/v1/analytics/products    # 商品分析（销量排行/转化率）
-GET    /api/v1/analytics/customer-service  # 客服统计（响应时间/满意度）
-GET    /api/v1/analytics/funnel      # 转化漏斗（浏览→加购→下单→支付）
-GET    /api/v1/analytics/rfm         # RFM 用户分层
-```
-
-### 3.10 用户中心
-
-```
-GET    /api/v1/user/profile          # 用户画像
-PUT    /api/v1/user/profile          # 更新资料
-GET    /api/v1/user/behaviors        # 行为记录 ?action=
-GET    /api/v1/user/favorites        # 收藏列表
-GET    /api/v1/user/browsing-history # 浏览历史
-```
-
-### 3.11 学习系统（新增）
-
-```
-POST   /api/v1/learn/extract-top-seller # 销冠话术提炼 {chat_logs: [...]}
-POST   /api/v1/learn/update-knowledge   # 知识库自动更新 {product_id, source}
-POST   /api/v1/learn/style-finetune     # 风格微调 {style_id, corrections: [...]}
-GET    /api/v1/learn/correction-stats   # 修正统计 {agent_id, date_range}
-```
-
-### 3.12 外部推送（新增）
-
-```
-POST   /api/v1/notify/send              # 发送消息 {target, platform, content}
-GET    /api/v1/notify/channels          # 可用推送渠道（钉钉/微信/飞书）
+买家问题 → ChromaDB 语义检索(商品知识+历史话术) → RRF 融合 → LLM 生成回复 → 返回3条建议
 ```
 
 ---
 
-## 四、错误码规范
+## 四、WebSocket 协议
+
+```
+客服工作台 /ws/service：
+  服务端推送：
+    {"type": "new_conversation", "conversation_id": 1, "buyer_nick": "张三", "preview": "这个多大码？"}
+    {"type": "new_message", "conversation_id": 1, "role": "buyer", "content": "有黑色的吗？"}
+    
+  客户端发送：
+    {"type": "ai_suggest", "conversation_id": 1, "question": "有黑色的吗？"}
+    → 服务端返回: {"type": "ai_suggest", "suggestions": [...]}
+```
+
+---
+
+## 五、错误码
 
 | 范围 | 含义 |
 |:----:|------|
 | 200 | 成功 |
-| 40001-40099 | 参数校验错误 |
-| 40100-40199 | 认证授权错误 |
-| 40300-40399 | 权限不足 |
-| 40400-40499 | 资源不存在 |
-| 40900-40999 | 业务冲突（库存不足等） |
-| 50000-50099 | 服务端错误 |
-| 51000-51099 | AI 服务错误 |
-
----
-
-## 五、WebSocket 端点设计
-
-| 端点 | 用途 | 认证 |
-|------|------|:---:|
-| `/ws/chat` | 智能客服实时对话 | JWT Token |
-| `/ws/notifications` | 系统通知（订单状态、物流、活动） | JWT Token |
+| 40001 | 参数校验错误 |
+| 40101 | Token 无效或过期 |
+| 40102 | 不是商户员工 |
+| 40301 | 权限不足（service 不能访问店铺管理） |
+| 40401 | 资源不存在 |
+| 40901 | 同步冲突 |
+| 50001 | 平台连接器错误 |
+| 51001 | AI 服务错误 |
