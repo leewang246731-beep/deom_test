@@ -125,5 +125,6 @@
 | [模块设计](docs/modules.md) | 7大模块 + 2大系统详细功能规格 |
 | [Agent 设计](docs/agent-design.md) | 6Agent编排、场景策略、话术风格、工具定义 |
 | [可行性分析](docs/feasibility-analysis.md) | 风险评估、成本估算、落地路径 |
+| [**📋 一期实施计划**](docs/PHASE1-PLAN.md) | 7步实施、依赖顺序、验证检查表、2周落地 |
 | [配置文档](docs/CONFIG.md) | 环境变量、端口映射、冲突避让、配置清单 |
 | [VIBE-CODING-PROMPTS.md](VIBE-CODING-PROMPTS.md) | 三期搭建提示词 |
