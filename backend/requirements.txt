@@ -1,0 +1,31 @@
+# Web 框架与服务器
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# 数据库 ORM 与驱动 (MySQL 8.0+)
+SQLAlchemy==2.0.36
+PyMySQL==1.1.1
+
+# 配置管理
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# JWT 鉴权与密码哈希
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.2.1
+
+# 表单/WebSocket 支持
+python-multipart==0.0.20
+websockets==14.1
+
+# Mock 数据生成
+Faker==33.1.0
+
+# 向量检索 / Embedding / LLM (DashScope 云端)
+chromadb>=0.5.0
+dashscope>=1.20.0
+
+# Redis (缓存/分布式锁)
+redis==5.2.1

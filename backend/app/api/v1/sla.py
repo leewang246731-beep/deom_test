@@ -1,0 +1,63 @@
+"""SLA 策略管理接口（PHASE3-PLAN §6）"""
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.core.response import ok
+from app.database.session import get_db
+from app.models.sla_policy import SLAPolicy
+
+router = APIRouter(prefix="/sla", tags=["SLA"])
+
+
+@router.get("/policies")
+def list_policies(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    policies = db.query(SLAPolicy).filter(SLAPolicy.merchant_id == current.merchant_id).order_by(
+        SLAPolicy.priority).all()
+    return ok([{"id": p.id, "priority": p.priority, "category_id": p.category_id,
+                "response_minutes": p.response_minutes, "resolve_minutes": p.resolve_minutes,
+                "escalate_minutes": p.escalate_minutes, "escalate_to": p.escalate_to,
+                "is_active": p.is_active} for p in policies])
+
+
+@router.post("/policies")
+def create_policy(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                  db: Session = Depends(get_db)):
+    if body.get("priority") not in ("P0", "P1", "P2", "P3"):
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "优先级必须为 P0/P1/P2/P3"})
+    p = SLAPolicy(merchant_id=current.merchant_id, priority=body["priority"],
+                  category_id=body.get("category_id"),
+                  response_minutes=body.get("response_minutes", 60),
+                  resolve_minutes=body.get("resolve_minutes", 480),
+                  escalate_minutes=body.get("escalate_minutes"),
+                  escalate_to=body.get("escalate_to"))
+    db.add(p)
+    db.commit()
+    return ok({"id": p.id}, msg="已创建")
+
+
+@router.put("/policies/{policy_id}")
+def update_policy(policy_id: int, body: dict,
+                  current: CurrentUser = Depends(require_roles("admin", "manager")),
+                  db: Session = Depends(get_db)):
+    p = db.query(SLAPolicy).filter(SLAPolicy.id == policy_id,
+                                    SLAPolicy.merchant_id == current.merchant_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "策略不存在"})
+    for f in ("response_minutes", "resolve_minutes", "escalate_minutes", "escalate_to", "is_active"):
+        if f in body:
+            setattr(p, f, body[f])
+    db.commit()
+    return ok({"id": p.id}, msg="已更新")
+
+
+@router.delete("/policies/{policy_id}")
+def delete_policy(policy_id: int, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                  db: Session = Depends(get_db)):
+    p = db.query(SLAPolicy).filter(SLAPolicy.id == policy_id,
+                                    SLAPolicy.merchant_id == current.merchant_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "策略不存在"})
+    db.delete(p)
+    db.commit()
+    return ok(msg="已删除")

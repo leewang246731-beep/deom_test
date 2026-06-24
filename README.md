@@ -1,132 +1,203 @@
-# 多平台智能托管 SaaS 平台
+# 电商智能托管平台
 
-> 帮助商家绑定外部店铺（淘宝/京东/抖音），用 AI 自动生成客服话术、智能回复、千人千面催单
-
----
-
-## 一、项目定位
-
-这是一个面向商家的 **B2B SaaS 平台**，不是自营电商。
-
-**商家**在平台上绑定自己的外部店铺后：
-- 平台自动拉取商品、订单、买家会话
-- AI 根据商品知识和历史话术，实时生成客服回复建议
-- 自动识别催单场景，生成千人千面催付话术
-- Mock 模式下无需真实店铺即可完整演示所有 AI 能力
+> 帮助商家绑定外部店铺，用 AI 实时生成客服话术、千人千面催单。
+> **一期已交付** — Mock 模式下完整可演示，无需任何外部平台 Key。
 
 ---
 
-## 二、角色体系
+## 快速启动（3 步）
 
-| 角色 | 说明 | 权限范围 |
-|------|------|---------|
-| **Admin** (管理员) | 商户最高管理员 | 管理店铺绑定/解绑、管理员工账号、查看全店数据、配置 AI 风格 |
-| **Manager** (运营) | 运营人员 | 管理商品库、查看订单、处理售后、查看数据看板 |
-| **Service** (客服) | 一线客服 | 客服工作台接会话、使用 AI 推荐话术、催单催付 |
+```bash
+# 1. 种子数据（幂等，可重复运行）
+cd backend
+pip install -r requirements.txt
+python seed.py
+# 输出: 种子数据生成成功！请使用 admin/123456 登录
 
-> 没有"消费者"角色。买家是外部平台用户，数据通过 API 同步，不在本平台注册。
+# 2. 向量化回填（每次 re-seed 后需重新跑一次）
+python -c "
+from app.database.session import SessionLocal
+from app.services.ai_suggest import backfill_all
+db=SessionLocal(); print(backfill_all(db,1)); db.close()
+"
+# 输出: {'products': 100, 'replies': 60, 'total_vectors': 160}
 
----
+# 3. 启动
+# 终端 1: 后端
+cd backend && python -m uvicorn main:app --port 8010
 
-## 三、平台架构
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     多平台连接层                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
-│  │ 淘宝 API  │ │ 京东 API  │ │ 抖音 API  │ │ Mock 模拟器  │   │
-│  │ (二期)   │ │ (二期)   │ │ (二期)   │ │ (一期完整)   │   │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────┬───────┘   │
-│       └─────────────┴────────────┴───────────────┘          │
-│                         │ PlatformConnector (抽象层)         │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-┌─────────────────────────┴────────────────────────────────────┐
-│                      SaaS 核心层                              │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │
-│  │ 商户管理  │ │ 商品库    │ │ 订单中心  │ │ 客服工作台    │   │
-│  │ 店铺绑定  │ │ 语义搜索  │ │ 售后处理  │ │ 会话列表      │   │
-│  │ 员工管理  │ │ 自动同步  │ │ 催单催付  │ │ AI话术建议    │   │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-┌─────────────────────────┴────────────────────────────────────┐
-│                      AI 引擎层                                │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  BGE-M3 Embedding  │  ChromaDB 向量检索               │   │
-│  │  商品知识匹配       │  历史话术检索                    │   │
-│  │  语义相似 FAQ       │  LLM 话术生成 (千问/GPT)        │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────┬────────────────────────────────────┘
-                          │
-┌─────────────────────────┴────────────────────────────────────┐
-│                      数据层                                   │
-│  MySQL 8.0 (业务) · ChromaDB (向量) · Redis (缓存/锁/Token)   │
-└──────────────────────────────────────────────────────────────┘
+# 终端 2: 前端
+cd frontend && npm install && npm run dev
+# → http://localhost:8080
 ```
 
----
-
-## 四、核心功能
-
-| 模块 | 功能 |
-|------|------|
-| **工作台** | 总订单量、待回复会话数、AI采纳率、同步状态卡片 |
-| **店铺管理** | 绑定/解绑外部店铺，Mock 模式一键生成虚拟店铺 |
-| **商品库** | 多店铺商品聚合展示，支持语义搜索（"适合送礼的电子产品"） |
-| **订单中心** | 按平台/状态筛选，售后操作，Mock 催单催付 |
-| **客服工作台** | 左侧会话列表 + 中间聊天窗口 + 右侧 AI 推荐话术面板 |
-| **AI 话术引擎** | 商品知识 + 历史话术 → 实时生成回复建议，一键复制/发送 |
-| **催单催付** | 拉取未付买家 → 结合商品卖点 → 千人千面催付话术 → 模拟发送 |
-| **数据看板** | 订单趋势、客服响应、AI 采纳率、店铺健康度 |
+登录：**admin / 123456**
+其他账号：manager / 123456、service / 123456
 
 ---
 
-## 五、多租户隔离
+## 演示流程（5 分钟完整走一遍）
 
-| 层 | 隔离方式 |
-|----|---------|
-| MySQL | 所有业务表带 `merchant_id` 字段，查询强制过滤 |
-| ChromaDB | Collection 命名 `merchant_{merchant_id}`，按商户独立 |
-| Redis | Key 前缀 `m:{merchant_id}:`（如 `m:1:access_token:shop_3`） |
-| JWT | Token 中携带 `merchant_id` + `role`，所有 API 依赖注入校验 |
+| 步骤 | 页面 | 操作 |
+|------|------|------|
+| 1 | 登录 | `admin / 123456` → 进入工作台 |
+| 2 | 工作台 | 看到 4 张统计卡片 + 订单趋势图 |
+| 3 | 店铺管理 | 看到 2 个 Mock 店铺（数码专营店 / 潮流女装店） |
+| 4 | 商品库 | 100 个商品分页列表；搜 `送礼` → 华为/AirPods/Kindle 出现，带相似度评分 |
+| 5 | 订单中心 | 200 个订单筛选；点"售后"→成功；再点→"请勿重复提交" |
+| 6 | 客服工作台 | 左侧选一个会话 → 中间看对话 → 右侧点"生成 AI 建议"→ 3 条 LLM 话术 |
+| 7 | 订单中心 | 点"一键催单"→ 5 条千人千面催付话术 |
 
----
-
-## 六、Mock 模式
-
-| 能力 | 实现 |
-|------|------|
-| 虚拟店铺 | 一键创建，无需授权 |
-| 虚拟商品 | Faker 生成 50 个真实感商品（华为手机/韩版连衣裙等） |
-| 虚拟会话 | 30 条买家对话（问尺码/问快递/问质量） |
-| 虚拟订单 | 100 条历史订单（含复购、不同状态） |
-| AI 话术 | 基于虚拟商品的向量检索 + LLM 生成 |
-| 催单 | 模拟未付买家列表 → 生成催付话术 → 模拟发送 |
-
-**所有 AI 功能在 Mock 模式下完整可演示，不依赖任何外部平台。**
+**核心演示点：AI 话术建议 < 2s 返回，语义搜索准确匹配"送礼"→数码产品。**
 
 ---
 
-## 七、开发计划
+## 系统架构
 
-| 阶段 | 周期 | 内容 |
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Frontend :8080  (Vue3 + Vite + Element Plus + Pinia)      │
+│  Login │ Dashboard │ Shops │ Products │ Orders │ Service   │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ REST + WebSocket
+┌──────────────────────┴──────────────────────────────────────┐
+│  Backend :8010  (FastAPI + SQLAlchemy + Pydantic)           │
+│                                                              │
+│  Platform Connector ──── Mock (Faker, 完整)                  │
+│                       ─── Taobao (二期, NotImplementedError) │
+│                                                              │
+│  AI Pipeline ──── embedding (DashScope text-embedding-v4)    │
+│              ──── ChromaDB 向量检索 (RRF 融合)               │
+│              ──── LLM (qwen-max, 话术生成+催单)              │
+└──────────────────────┬──────────────────────────────────────┘
+                       │
+┌──────────────────────┴──────────────────────────────────────┐
+│  MySQL 8.0 :3306  │  ChromaDB (嵌入式)  │  Redis :6379      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 项目结构
+
+```
+├── backend/
+│   ├── main.py              # FastAPI 入口，:8010
+│   ├── seed.py              # 幂等种子脚本
+│   ├── requirements.txt / .env
+│   ├── app/
+│   │   ├── core/            # config, security(JWT+bcyrpt), redis_client, response
+│   │   │   └── platform_connector/  # base(ABC), mock(Faker), taobao(占位), factory
+│   │   ├── database/        # session (engine+Base+get_db)
+│   │   ├── models/          # 7 张表 (ORM)
+│   │   ├── schemas/         # Pydantic 请求模型
+│   │   ├── api/v1/          # auth, shops, products, orders, conversations(AI+WS), ai, dashboard
+│   │   └── services/        # embedding, chroma_client, llm, ai_suggest (Pipeline)
+│   └── data/chroma/         # ChromaDB 持久化（自动）
+├── frontend/
+│   ├── vite.config.js       # :8080, proxy /api→:8010, /ws→:8010
+│   └── src/
+│       ├── router/          # 登录守卫 + 7 routes
+│       ├── stores/auth.js   # Pinia token 持久化
+│       ├── api/             # Axios 拦截器 + API 封装
+│       └── views/           # 7 页面
+└── docs/                    # 设计文档 + PROGRESS.md
+```
+
+---
+
+## API 速查
+
+所有接口 `Authorization: Bearer <JWT>`，Base: `/api/v1`
+
+| 模块 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| Auth | POST | `/auth/login` | `{username, password}` → `{access_token, user}` |
+| Auth | POST | `/auth/refresh` | `{refresh_token}` |
+| Shops | GET | `/shops` | 店铺列表（含商品数/订单数） |
+| Shops | POST | `/shops` | 绑定店铺 |
+| Shops | DELETE | `/shops/{id}` | 解绑（级联） |
+| Shops | POST | `/shops/{id}/sync` | 手动同步 |
+| Products | GET | `/products` | 列表 `?shop_id=&keyword=&price_min=&price_max=&page=` |
+| Products | GET | `/products/search` | 语义搜索 `?q=送礼` |
+| Products | GET | `/products/{id}` | 详情 |
+| Orders | GET | `/orders` | 列表 `?shop_id=&status=&page=` |
+| Orders | GET | `/orders/{id}` | 详情 |
+| Orders | POST | `/orders/{id}/refund` | 售后（Redis 并发锁） |
+| Orders | GET | `/orders/pending-payment` | 未付单（催单用） |
+| Orders | POST | `/orders/pending-payment/remind` | 一键催单 `{shop_id}` |
+| Conv | GET | `/conversations` | 会话列表 `?shop_id=&handled_status=` |
+| Conv | GET | `/conversations/{id}` | 详情（含 messages_json） |
+| Conv | POST | `/conversations/{id}/assign` | 分配给我 |
+| Conv | POST | `/conversations/{id}/close` | 关闭 |
+| AI | POST | `/ai/suggest` | 话术建议 `{shop_id, buyer_question, product_id?}` |
+| AI | POST | `/ai/campaign/pending-payment` | 催单话术 `{shop_id}` |
+| AI | POST | `/ai/search` | 知识库搜索 `{query, top_k}` |
+| Dash | GET | `/dashboard/metrics` | 看板指标 |
+| WS | WS | `/ws/service?token=` | 实时通道（鉴权+心跳+ai_suggest） |
+
+---
+
+## AI Pipeline
+
+```
+买家问题
+  → ChromaDB 向量检索 (商品知识 + 历史话术)
+  → RRF 融合排序 (k=60)
+  → Top-5 上下文 + LLM Prompt (qwen-max)
+  → 3 条回复建议（各 ≤200 字）
+  → 客服点击"复制/发送"→ 记录采纳
+```
+
+催单走同一 Pipeline 的 `generate_payment_reminders()` 分支：扫 pending 订单 → 每个订单查商品卖点（向量）→ LLM 生成千人千面话术。
+
+---
+
+## 多租户隔离
+
+| 层 | 方式 |
+|----|------|
+| MySQL | 所有表 `WHERE merchant_id = ...`，JWT `Depends(get_current_merchant)` |
+| ChromaDB | Collection `merchant_{merchant_id}` |
+| Redis | Key 前缀 `m:{merchant_id}:...` |
+
+一期单商户（id=1），架构已支持多商户扩展。
+
+---
+
+## vMall 集成
+
+SaaS 可对接 [vMall 虚拟电商平台](../vmall_system/README.md) 获取真实业务数据。
+
+**绑定流程：** 店铺管理 → 选择 vMall → 输入 API 地址 → 自动获取 Token → `/sync`
+
+**物流感知 AI 话术：** `/ai/suggest` 自动查询 vMall 订单物流状态，注入 Prompt 生成精准回复
+（"快递已到杭州中转站，预计2天送达"）。
+
+**Webhook 消费：** `POST /api/v1/webhooks/vmall` 接收 ORDER_PAID / LOGISTICS_UPDATED / REFUND_SUCCESS 等事件。
+
+**V3Connector：** `app/core/platform_connector/vmall.py` 实现 PlatformConnector ABC，对接 vMall OpenAPI。
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5 |
+| 后端 | Python 3.13, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2.10 |
+| 数据库 | MySQL 8.0 (PyMySQL), Redis 7 (Memurai) |
+| AI | DashScope text-embedding-v4 (1024维), qwen-max, ChromaDB (嵌入式) |
+| Mock | Faker 33 (zh_CN)，20 条真实感商品模板，尺码/快递/质量三类会话 |
+
+---
+
+## 开发进度
+
+| 阶段 | 状态 | 内容 |
 |------|:---:|------|
-| **一期** | 2 周 | 多租户架构 + Mock 平台连接器 + 商品库 + 客服工作台 + AI 话术 |
-| **二期** | 2 周 | 真实平台连接器(淘宝/京东) + 自动同步 + 数据看板 |
-| **三期** | 2 周 | 智能 Agent 编排 + 话术风格自定义 + 多平台扩展(抖音/拼多多) |
+| **一期** | ✅ 完成 | 多租户 + Mock + AI 话术 + 客服工作台 + 种子数据 |
+| 二期 | ⏳ | 真实平台 API (淘宝/京东)、Celery 定时同步、话术风格自定义 |
+| 三期 | ⏳ | 消费者端、智能 Agent 编排、多平台扩展 |
 
----
-
-## 快速导航
-
-| 文档 | 内容 |
-|------|------|
-| [架构设计](docs/architecture.md) | SaaS多租户架构、Mock平台连接器、技术选型 |
-| [数据库设计](docs/database.md) | 多租户数据模型、ChromaDB 隔离、索引策略 |
-| [API 规划](docs/api.md) | RESTful 接口、WebSocket 客服工作台 |
-| [模块设计](docs/modules.md) | 店铺管理/商品库/客服工作台/AI话术 详细规格 |
-| [Agent 设计](docs/agent-design.md) | AI 话术检索与生成 Pipeline |
-| [可行性分析](docs/feasibility-analysis.md) | 技术可行性、风险评估 |
-| [**📋 一期实施计划**](docs/PHASE1-PLAN.md) | 7步实施、依赖顺序、验证检查表 |
-| [配置文档](docs/CONFIG.md) | 环境变量、端口映射、多租户配置 |
+详细记录见 [docs/PROGRESS.md](docs/PROGRESS.md)。

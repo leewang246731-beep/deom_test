@@ -1,0 +1,17 @@
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
+const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
+http.interceptors.request.use(c => { const t = localStorage.getItem('vmall_token'); if(t) c.headers.Authorization=`Bearer ${t}`; return c })
+http.interceptors.response.use(r => r.data, e => { ElMessage.error(e.response?.data?.detail?.msg||'请求失败'); return Promise.reject(e) })
+export const login = (u,p) => http.post('/consumer/auth/login', {username:u,password:p})
+export const getProducts = (p) => http.get('/consumer/products', {params:p})
+export const getProduct = (id) => http.get(`/consumer/products/${id}`)
+export const createOrder = (d) => http.post('/consumer/orders', d)
+export const payOrder = (id) => http.post(`/consumer/orders/${id}/pay`)
+export const getMyOrders = (p) => http.get('/consumer/orders', {params:p})
+export const getOrder = (id) => http.get(`/consumer/orders/${id}`)
+export const applyAfterSale = (d) => http.post('/consumer/after-sales', d)
+export const getAfterSale = (id) => http.get(`/consumer/after-sales/${id}`)
+export const createConv = (d) => http.post('/consumer/conversations', d)
+export const sendMsg = (id, d) => http.post(`/consumer/conversations/${id}/messages`, d)
+export const getMsgs = (id) => http.get(`/consumer/conversations/${id}/messages`)

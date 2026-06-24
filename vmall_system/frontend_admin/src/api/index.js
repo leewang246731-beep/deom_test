@@ -1,0 +1,18 @@
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
+const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
+http.interceptors.request.use(c => { const t = localStorage.getItem('vmall_admin_token'); if(t) c.headers.Authorization=`Bearer ${t}`; return c })
+http.interceptors.response.use(r => r.data, e => { ElMessage.error(e.response?.data?.detail?.msg||'请求失败'); return Promise.reject(e) })
+export const login = (u,p) => http.post('/admin/auth/login', {username:u,password:p})
+export const getDashboard = () => http.get('/admin/dashboard')
+export const getOrders = (p) => http.get('/admin/orders', {params:p})
+export const getOrder = (id) => http.get(`/admin/orders/${id}`)
+export const shipOrder = (id,d) => http.post(`/admin/orders/${id}/ship`, d)
+export const getAfterSales = (p) => http.get('/admin/after-sales', {params:p})
+export const reviewAfterSale = (id,d) => http.post(`/admin/after-sales/${id}/review`, d)
+export const confirmReceive = (id) => http.post(`/admin/after-sales/${id}/confirm-receive`)
+export const getConvs = (p) => http.get('/admin/conversations', {params:p})
+export const getConvMsgs = (id) => http.get(`/admin/conversations/${id}/messages`)
+export const replyConv = (id,d) => http.post(`/admin/conversations/${id}/messages`, d)
+export const getSettings = () => http.get('/admin/settings')
+export const updateSettings = (d) => http.put('/admin/settings', d)
