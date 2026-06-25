@@ -1,140 +1,258 @@
-# 电商智能托管平台
+# 多平台智能托管 SaaS
 
-> 帮助商家绑定外部店铺，用 AI 实时生成客服话术、千人千面催单。
-> **一期已交付** — Mock 模式下完整可演示，无需任何外部平台 Key。
+> 多租户电商客服托管平台。绑定外部店铺，AI 实时生成话术、语义搜索商品、千人千面催单、智能工单处理。
+> **六阶段全部交付** — Mock 模式下完整可演示，无需外部平台 Key。
 
 ---
 
-## 快速启动（3 步）
+## 快速启动
 
 ```bash
-# 1. 种子数据（幂等，可重复运行）
+# 1. 后端依赖 + 种子数据
 cd backend
 pip install -r requirements.txt
 python seed.py
-# 输出: 种子数据生成成功！请使用 admin/123456 登录
 
-# 2. 向量化回填（每次 re-seed 后需重新跑一次）
+# 2. 向量化回填
 python -c "
 from app.database.session import SessionLocal
 from app.services.ai_suggest import backfill_all
-db=SessionLocal(); print(backfill_all(db,1)); db.close()
+db=SessionLocal(); print(backfill_all(db, 2, full_rebuild=True)); db.close()
 "
-# 输出: {'products': 100, 'replies': 60, 'total_vectors': 160}
 
-# 3. 启动
-# 终端 1: 后端
-cd backend && python -m uvicorn main:app --port 8010
+# 3. 启动后端
+uvicorn main:app --port 8012 --reload
 
-# 终端 2: 前端
-cd frontend && npm install && npm run dev
-# → http://localhost:8080
+# 4. 启动前端（3 个入口终端）
+cd ../frontend
+npm install
+npm run dev:admin      # :8093  平台管理
+npm run dev:merchant   # :8094  商户工作台
+npm run dev:service    # :8095  客服工作台
 ```
 
-登录：**admin / 123456**
-其他账号：manager / 123456、service / 123456
-
----
-
-## 演示流程（5 分钟完整走一遍）
-
-| 步骤 | 页面 | 操作 |
-|------|------|------|
-| 1 | 登录 | `admin / 123456` → 进入工作台 |
-| 2 | 工作台 | 看到 4 张统计卡片 + 订单趋势图 |
-| 3 | 店铺管理 | 看到 2 个 Mock 店铺（数码专营店 / 潮流女装店） |
-| 4 | 商品库 | 100 个商品分页列表；搜 `送礼` → 华为/AirPods/Kindle 出现，带相似度评分 |
-| 5 | 订单中心 | 200 个订单筛选；点"售后"→成功；再点→"请勿重复提交" |
-| 6 | 客服工作台 | 左侧选一个会话 → 中间看对话 → 右侧点"生成 AI 建议"→ 3 条 LLM 话术 |
-| 7 | 订单中心 | 点"一键催单"→ 5 条千人千面催付话术 |
-
-**核心演示点：AI 话术建议 < 2s 返回，语义搜索准确匹配"送礼"→数码产品。**
+登录：**admin / 123456**（admin / manager / service 三种角色均可用）
 
 ---
 
 ## 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Frontend :8080  (Vue3 + Vite + Element Plus + Pinia)      │
-│  Login │ Dashboard │ Shops │ Products │ Orders │ Service   │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ REST + WebSocket
-┌──────────────────────┴──────────────────────────────────────┐
-│  Backend :8010  (FastAPI + SQLAlchemy + Pydantic)           │
-│                                                              │
-│  Platform Connector ──── Mock (Faker, 完整)                  │
-│                       ─── Taobao (二期, NotImplementedError) │
-│                                                              │
-│  AI Pipeline ──── embedding (DashScope text-embedding-v4)    │
-│              ──── ChromaDB 向量检索 (RRF 融合)               │
-│              ──── LLM (qwen-max, 话术生成+催单)              │
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-┌──────────────────────┴──────────────────────────────────────┐
-│  MySQL 8.0 :3306  │  ChromaDB (嵌入式)  │  Redis :6379      │
-└─────────────────────────────────────────────────────────────┘
+                    ┌──────────────────────────────┐
+                    │     MySQL 8.0 :3306          │
+                    │     Redis :6379              │
+                    │     ChromaDB (嵌入式)         │
+                    └──────────────┬───────────────┘
+                                   │
+    ┌──────────────────────────────┴──────────────────────────────┐
+    │                   FastAPI Backend :8012                      │
+    │                                                              │
+    │  ┌──────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+    │  │ Platform │  │  AI Pipeline │  │  LangChain Agent    │  │
+    │  │ Connector│  │  Embedding   │  │  Tool Calling       │  │
+    │  │ Mock/TB  │  │  RAG + RRF  │  │  (订单/物流/库存)    │  │
+    │  │ JD/vMall │  │  Qwen LLM   │  │                     │  │
+    │  └──────────┘  └──────────────┘  └──────────────────────┘  │
+    │                                                              │
+    │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+    │  │  Scheduler   │  │  CRAG 知识库 │  │  Mode Engine     │  │
+    │  │  APScheduler │  │  BM25 + 向量 │  │  copilot/auto/   │  │
+    │  │  30min 同步  │  │  hybrid检索  │  │  manual          │  │
+    │  └──────────────┘  └──────────────┘  └──────────────────┘  │
+    └──────────────────────┬──────────────────────────────────────┘
+                           │
+    ┌──────────────────────┴──────────────────────────────────────┐
+    │            Vue 3 + Vite + Element Plus + Pinia              │
+    │                                                              │
+    │  :8093 平台管理  │  :8094 商户工作台  │  :8095 客服工作台    │
+    │  index.html      │  merchant.html     │  service.html       │
+    └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 项目结构
+## 端口规划
+
+| 端口 | 角色 | 入口 | 说明 |
+|:---:|------|------|------|
+| **:8012** | SaaS Backend | — | FastAPI，JWT 多租户 |
+| **:8093** | 平台管理 | `index.html` | admin/manager 登录，全局管理 |
+| **:8094** | 商户工作台 | `merchant.html` | 商家看板、商品/订单/店铺管理 |
+| **:8095** | 客服工作台 | `service.html` | 会话处理、AI 话术、工单 |
+
+---
+
+## 目录结构
 
 ```
-├── backend/
-│   ├── main.py              # FastAPI 入口，:8010
-│   ├── seed.py              # 幂等种子脚本
-│   ├── requirements.txt / .env
-│   ├── app/
-│   │   ├── core/            # config, security(JWT+bcyrpt), redis_client, response
-│   │   │   └── platform_connector/  # base(ABC), mock(Faker), taobao(占位), factory
-│   │   ├── database/        # session (engine+Base+get_db)
-│   │   ├── models/          # 7 张表 (ORM)
-│   │   ├── schemas/         # Pydantic 请求模型
-│   │   ├── api/v1/          # auth, shops, products, orders, conversations(AI+WS), ai, dashboard
-│   │   └── services/        # embedding, chroma_client, llm, ai_suggest (Pipeline)
-│   └── data/chroma/         # ChromaDB 持久化（自动）
-├── frontend/
-│   ├── vite.config.js       # :8080, proxy /api→:8010, /ws→:8010
-│   └── src/
-│       ├── router/          # 登录守卫 + 7 routes
-│       ├── stores/auth.js   # Pinia token 持久化
-│       ├── api/             # Axios 拦截器 + API 封装
-│       └── views/           # 7 页面
-└── docs/                    # 设计文档 + PROGRESS.md
+backend/
+├── main.py                     # FastAPI 入口，Scheduler 生命周期
+├── seed.py                     # 幂等种子脚本（2 商户 + 店铺 + 商品 + 订单 + 会话 + 工单）
+├── requirements.txt / .env
+└── app/
+    ├── ai/                     # LangChain Agent (NEW)
+    │   ├── agent.py            # create_service_agent, run_agent
+    │   └── tools.py            # 5 个工具：订单/物流/商品搜索/库存/历史工单
+    ├── api/v1/
+    │   ├── auth.py             # 登录/刷新/多租户 JWT
+    │   ├── shops.py            # 店铺 CRUD + 绑定/解绑 + 调度器状态 + 全量同步
+    │   ├── products.py         # 商品列表/搜索/语义搜索/CSV导出
+    │   ├── orders.py           # 订单列表/售后/催单/CSV导出
+    │   ├── conversations.py    # 会话列表/分配/关闭 + WS 实时通道
+    │   ├── tickets.py          # 工单 CRUD + 分类 + 认领 + AI 建议 + 批量操作
+    │   ├── ai.py               # AI 话术/催单/知识库搜索/话术风格
+    │   ├── dashboard.py        # 看板指标 + 实时监控
+    │   └── service_mode.py     # 客服模式配置 + 接管 + 自动回复日志
+    ├── core/
+    │   ├── config.py           # Pydantic Settings (DB/JWT/Redis/DashScope)
+    │   ├── security.py         # JWT HS256 + bcrypt 密码哈希
+    │   ├── redis_client.py     # Redis 连接 + 分布式锁
+    │   ├── response.py         # ok()/page() 统一响应
+    │   └── platform_connector/ # Mock / Taobao / JD / vMall V3
+    ├── database/session.py     # SQLAlchemy engine + Base + get_db
+    ├── kb/                     # CRAG 知识库模块
+    │   ├── kb_api.py           # 知识库 CRUD + 混合检索 + CRAG 评估
+    │   ├── processor.py        # 文档分块 + embedding 入库
+    │   ├── retriever.py        # 混合检索（向量 + BM25）
+    │   ├── chroma_client.py    # ChromaDB 按商户隔离
+    │   ├── bm25_index.py       # BM25 关键词索引
+    │   ├── reranker.py         # 重排序
+    │   ├── crag.py             # CRAG 评估器
+    │   └── ...
+    ├── models/                 # 22 张表
+    ├── schemas/                # Pydantic 请求模型
+    └── services/
+        ├── ai_suggest.py       # RAG Pipeline（RRF + LLM）+ Agent 路径分发
+        ├── ticket_ai.py        # 工单 AI（分类/建议/总结/向量化）
+        ├── llm.py              # LangChain ChatDashScope 封装（支持 bind_tools）
+        ├── embedding.py        # DashScope text-embedding-v4（1024 维）
+        ├── chroma_client.py    # ChromaDB 读写（商品/话术向量）
+        ├── mode_engine.py      # 客服模式引擎（copilot/auto/manual）
+        ├── scheduler.py        # APScheduler 30 分钟全量同步
+        └── recommendation.py   # 协同购买推荐
+
+frontend/
+├── index.html / merchant.html / service.html   # 3 入口
+├── vite.config.js / vite.config.merchant.js / vite.config.service.js
+└── src/
+    ├── main.js / main-merchant.js / main-service.js
+    ├── api/index.js            # Axios + API 封装
+    ├── router/index.js         # 平台管理路由
+    ├── router/merchant.js      # 商户工作台路由
+    ├── router/service.js       # 客服工作台路由
+    ├── stores/auth.js          # Pinia token 持久化
+    └── views/                  # 26 页面
+        ├── Login.vue           # 三入口自适应登录
+        ├── AdminLayout.vue     # 平台管理布局
+        ├── MerchantLayout.vue  # 商户工作台布局
+        ├── ServiceLayout.vue   # 客服工作台布局
+        ├── Dashboard.vue       # 看板 + 日期筛选 + 趋势图
+        ├── LiveMonitor.vue     # 实时客服监控（10s 轮询）
+        ├── Connectors.vue      # 平台连接器管理
+        ├── Service.vue         # 客服会话工作台
+        ├── ServiceModeConfig.vue
+        ├── Tickets.vue / TicketDetail.vue / TicketCategories.vue
+        ├── AutoReplyLogs.vue
+        ├── AdminKnowledge.vue / ServiceKnowledge.vue
+        ├── AuditLogs.vue / WebhookLogs.vue
+        ├── SLAPolicies.vue / SkillGroups.vue
+        ├── AIConfig.vue / Recommendations.vue
+        ├── Products.vue / Orders.vue / Shops.vue
+        ├── Categories.vue / Users.vue
+        └── Layout.vue          # 旧布局（兼容）
 ```
 
 ---
 
 ## API 速查
 
-所有接口 `Authorization: Bearer <JWT>`，Base: `/api/v1`
+Base: `/api/v1`，Authorization: `Bearer <JWT>`
 
-| 模块 | 方法 | 路径 | 说明 |
-|------|------|------|------|
-| Auth | POST | `/auth/login` | `{username, password}` → `{access_token, user}` |
-| Auth | POST | `/auth/refresh` | `{refresh_token}` |
-| Shops | GET | `/shops` | 店铺列表（含商品数/订单数） |
-| Shops | POST | `/shops` | 绑定店铺 |
-| Shops | DELETE | `/shops/{id}` | 解绑（级联） |
-| Shops | POST | `/shops/{id}/sync` | 手动同步 |
-| Products | GET | `/products` | 列表 `?shop_id=&keyword=&price_min=&price_max=&page=` |
-| Products | GET | `/products/search` | 语义搜索 `?q=送礼` |
-| Products | GET | `/products/{id}` | 详情 |
-| Orders | GET | `/orders` | 列表 `?shop_id=&status=&page=` |
-| Orders | GET | `/orders/{id}` | 详情 |
-| Orders | POST | `/orders/{id}/refund` | 售后（Redis 并发锁） |
-| Orders | GET | `/orders/pending-payment` | 未付单（催单用） |
-| Orders | POST | `/orders/pending-payment/remind` | 一键催单 `{shop_id}` |
-| Conv | GET | `/conversations` | 会话列表 `?shop_id=&handled_status=` |
-| Conv | GET | `/conversations/{id}` | 详情（含 messages_json） |
-| Conv | POST | `/conversations/{id}/assign` | 分配给我 |
-| Conv | POST | `/conversations/{id}/close` | 关闭 |
-| AI | POST | `/ai/suggest` | 话术建议 `{shop_id, buyer_question, product_id?}` |
-| AI | POST | `/ai/campaign/pending-payment` | 催单话术 `{shop_id}` |
-| AI | POST | `/ai/search` | 知识库搜索 `{query, top_k}` |
-| Dash | GET | `/dashboard/metrics` | 看板指标 |
-| WS | WS | `/ws/service?token=` | 实时通道（鉴权+心跳+ai_suggest） |
+### 认证
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/auth/login` | `{username, password}` → `{access_token, user}` |
+| POST | `/auth/refresh` | `{refresh_token}` |
+
+### 店铺 & 连接器
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/shops` | 店铺列表（含商品数/订单数） |
+| POST | `/shops` | 绑定店铺 |
+| DELETE | `/shops/{id}` | 解绑（级联删除商品/订单/会话） |
+| POST | `/shops/{id}/sync` | 手动同步单个店铺 |
+| POST | `/shops/{id}/bind-token` | 生成 vMall 绑定 token |
+| GET | `/shops/scheduler-status` | 同步调度器状态 + 最近日志 |
+| POST | `/shops/trigger-sync` | 触发全量同步 |
+| GET | `/shops/connectors` | 各平台连接器状态总览 |
+
+### 商品
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/products` | 列表 `?shop_id=&keyword=&category=&price_min=&price_max=` |
+| GET | `/products/search` | 语义搜索 `?q=送礼&shop_id=` |
+| GET | `/products/{id}` | 详情 |
+| POST | `/products` | 手动创建 |
+| PUT | `/products/{id}` | 编辑 |
+| DELETE | `/products/{id}` | 删除 |
+| GET | `/products/export` | CSV 导出（UTF-8 BOM） |
+| POST | `/products/sync/{shop_id}` | 同步指定店铺商品 |
+
+### 订单
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/orders` | 列表 `?shop_id=&status=` |
+| GET | `/orders/{id}` | 详情 |
+| POST | `/orders/{id}/refund` | 售后（Redis 分布式锁） |
+| GET | `/orders/pending-payment` | 未付单列表 |
+| POST | `/orders/pending-payment/remind` | AI 催单 `{shop_id, limit}` |
+| GET | `/orders/export` | CSV 导出（UTF-8 BOM） |
+
+### 会话
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/conversations` | 列表 `?shop_id=&handled_status=` |
+| GET | `/conversations/{id}` | 详情（含 messages_json） |
+| POST | `/conversations/{id}/assign` | 分配给我 |
+| POST | `/conversations/{id}/messages` | 客服发送消息 |
+| POST | `/conversations/{id}/close` | 关闭 |
+| GET | `/conversations/export` | CSV 导出（UTF-8 BOM） |
+| WS | `/ws/service?token=` | 实时通道（ai_suggest + set_mode + takeover） |
+
+### 工单
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/tickets` | 列表（支持分类/状态/优先级筛选） |
+| POST | `/tickets` | 创建 |
+| GET | `/tickets/{id}` | 详情 + 评论时间线 |
+| POST | `/tickets/{id}/claim` | 认领 |
+| POST | `/tickets/{id}/ai-suggest` | AI 处理建议 |
+| POST | `/tickets/batch` | 批量操作（分配/关闭） |
+| GET | `/tickets/export` | CSV 导出 |
+
+### AI 引擎
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/ai/suggest` | 话术建议 `{shop_id, buyer_question, product_id?}` |
+| POST | `/ai/campaign/pending-payment` | 催单话术 `{shop_id, limit}` |
+| POST | `/ai/search` | 知识库搜索 `{query, top_k}` |
+| POST | `/ai/suggest/log` | 记录话术采纳反馈 |
+| GET/POST/PUT/DELETE | `/ai/styles` | 话术风格配置 |
+
+### 客服模式
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET/PUT | `/service-mode/config` | 模式配置（阈值/时段/模板） |
+| POST | `/service-mode/conversations/{id}/mode` | 切换会话模式 |
+| POST | `/service-mode/conversations/{id}/takeover` | 人工接管 |
+| GET | `/service-mode/auto-reply-logs` | 自动回复日志 |
+| GET | `/service-mode/stats` | 自动回复统计 |
+
+### 看板
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/dashboard/metrics` | 指标统计 `?start=&end=` |
+| GET | `/dashboard/live-monitor` | 实时客服监控 |
 
 ---
 
@@ -142,14 +260,41 @@ cd frontend && npm install && npm run dev
 
 ```
 买家问题
-  → ChromaDB 向量检索 (商品知识 + 历史话术)
-  → RRF 融合排序 (k=60)
-  → Top-5 上下文 + LLM Prompt (qwen-max)
-  → 3 条回复建议（各 ≤200 字）
-  → 客服点击"复制/发送"→ 记录采纳
+  → 关键词检测（订单/物流/库存 → Agent 路径）
+  → Agent 路径：LangChain Agent → 工具调用 → LLM 生成回复
+  → RAG 路径：ChromaDB 向量检索 (商品+话术) → RRF 融合 → LLM → 3 条建议
+  → 回写 ai_suggest_reply + 记录采纳反馈
 ```
 
-催单走同一 Pipeline 的 `generate_payment_reminders()` 分支：扫 pending 订单 → 每个订单查商品卖点（向量）→ LLM 生成千人千面话术。
+**Agent 工具集**：`query_order` / `check_logistics` / `search_product_kb` / `check_inventory` / `search_ticket_history`
+
+**LangChain 封装**：`ChatDashScope(BaseChatModel)` 支持 `bind_tools`，用 `langgraph.create_react_agent` 编排。
+
+---
+
+## 平台连接器
+
+| 连接器 | 类型 | 数据 | 说明 |
+|--------|------|------|------|
+| MockConnector | 内置 | Faker 生成 15 条模板 | 默认 Demo |
+| TaobaoConnector | 模拟 | 15 条淘宝风格商品 | 含逼真订单 + 会话 |
+| JdConnector | 模拟 | 15 条京东风格商品 | 自营标签 + Plus 会员 |
+| V3Connector | 真实 | vMall OpenAPI | 对接 vmall_system |
+
+定时同步：APScheduler 每 30 分钟自动全量同步所有活跃店铺。
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|------|------|
+| 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5 |
+| 后端 | Python 3.13, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2.10 |
+| 数据库 | MySQL 8.0 (PyMySQL), Redis, ChromaDB (嵌入式 PersistentClient) |
+| AI | DashScope text-embedding-v4, qwen-max, LangChain + LangGraph Agent |
+| 调度 | APScheduler (AsyncIOScheduler) |
+| Mock | Faker 33 (zh_CN) |
 
 ---
 
@@ -157,47 +302,15 @@ cd frontend && npm install && npm run dev
 
 | 层 | 方式 |
 |----|------|
-| MySQL | 所有表 `WHERE merchant_id = ...`，JWT `Depends(get_current_merchant)` |
+| MySQL | 所有查询 `WHERE merchant_id = ...`，JWT 注入 `Depends(get_current_merchant)` |
 | ChromaDB | Collection `merchant_{merchant_id}` |
 | Redis | Key 前缀 `m:{merchant_id}:...` |
 
-一期单商户（id=1），架构已支持多商户扩展。
-
 ---
 
-## vMall 集成
+## 外部对接
 
-SaaS 可对接 [vMall 虚拟电商平台](../vmall_system/README.md) 获取真实业务数据。
-
-**绑定流程：** 店铺管理 → 选择 vMall → 输入 API 地址 → 自动获取 Token → `/sync`
-
-**物流感知 AI 话术：** `/ai/suggest` 自动查询 vMall 订单物流状态，注入 Prompt 生成精准回复
-（"快递已到杭州中转站，预计2天送达"）。
-
-**Webhook 消费：** `POST /api/v1/webhooks/vmall` 接收 ORDER_PAID / LOGISTICS_UPDATED / REFUND_SUCCESS 等事件。
-
-**V3Connector：** `app/core/platform_connector/vmall.py` 实现 PlatformConnector ABC，对接 vMall OpenAPI。
-
----
-
-## 技术栈
-
-| 层 | 技术 |
-|----|------|
-| 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5 |
-| 后端 | Python 3.13, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2.10 |
-| 数据库 | MySQL 8.0 (PyMySQL), Redis 7 (Memurai) |
-| AI | DashScope text-embedding-v4 (1024维), qwen-max, ChromaDB (嵌入式) |
-| Mock | Faker 33 (zh_CN)，20 条真实感商品模板，尺码/快递/质量三类会话 |
-
----
-
-## 开发进度
-
-| 阶段 | 状态 | 内容 |
-|------|:---:|------|
-| **一期** | ✅ 完成 | 多租户 + Mock + AI 话术 + 客服工作台 + 种子数据 |
-| 二期 | ⏳ | 真实平台 API (淘宝/京东)、Celery 定时同步、话术风格自定义 |
-| 三期 | ⏳ | 消费者端、智能 Agent 编排、多平台扩展 |
-
-详细记录见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+对接 [vMall 虚拟电商平台](../vmall_system/README.md) 获取真实业务数据：
+- 店铺绑定 → 生成 Token → vmall 端确认 → `/sync` 拉取数据
+- 物流感知 AI：`/ai/suggest` 自动查询 vMall 物流状态注入 Prompt
+- Webhook：接收 ORDER_PAID / LOGISTICS_UPDATED / REFUND_SUCCESS 事件

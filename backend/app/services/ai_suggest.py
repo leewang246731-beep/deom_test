@@ -29,6 +29,18 @@ from app.services.chroma_client import (
 from app.services.embedding import embed_query, embed_texts
 from app.services.llm import chat
 
+# ===== Agent 关键词检测 =====
+AGENT_KEYWORDS = [
+    "订单", "物流", "快递", "发货", "到哪", "运输", "配送", "收货",
+    "库存", "有货", "没货", "下架", "补货",
+    "退款", "退货", "售后", "工单",
+    "order", "logistics", "tracking", "shipping", "delivery", "stock", "inventory", "refund",
+]
+
+
+def _should_use_agent(question: str) -> bool:
+    return any(kw in question.lower() for kw in AGENT_KEYWORDS)
+
 
 # ===== RRF 融合 =====
 def _rrf_fusion(
@@ -117,6 +129,28 @@ async def get_ai_suggestions(
                 role_prompt = get_role_prompt(sm.skill_tags or "")
     except Exception:
         pass
+
+    # ---- Agent 路径：订单/物流/库存/售后 → LangChain Agent ----
+    if _should_use_agent(buyer_question):
+        try:
+            from app.ai.agent import create_service_agent, run_agent
+            agent = create_service_agent(merchant_id, role_prompt)
+            result = run_agent(agent, buyer_question,
+                               [(h.get("role", ""), h.get("content", "")) for h in (conversation_history or [])])
+            suggestions = [
+                {"content": result["reply"], "source": "agent", "confidence": 0.85}
+            ]
+            if len(result["reply"]) < 80:
+                # Agent 回复偏短时，补充 RAG 检索结果作为备选话术
+                vec = embed_query(buyer_question)
+                replies = query_replies(merchant_id, vec, n_results=2)
+                for meta in replies.get("metadatas", [[]])[0][:2]:
+                    suggestions.append({"content": meta.get("reply", ""), "source": "retrieval", "confidence": 0.6})
+            _writeback_ai_reply(db, shop_id, buyer_question, suggestions)
+            return {"suggestions": suggestions[:3], "agent_steps": result["intermediate_steps"]}
+        except Exception as e:
+            # Agent 失败，继续走原 RAG 链路
+            pass
 
     # ---- 物流状态注入 (tuozhan.md §2.6) ----
     logistics_info = await _get_logistics_context(merchant_id, shop_id, db)

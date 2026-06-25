@@ -53,10 +53,30 @@ def classify_ticket(db: Session, merchant_id: int, title: str, description: str)
     return {"suggested_priority": priority, "suggested_category_id": None}
 
 
+TICKET_AGENT_KEYWORDS = ["退款", "退货", "换货", "售后", "投诉", "物流", "快递", "发货", "赔偿"]
+
+
+def _should_use_ticket_agent(title: str, description: str = "") -> bool:
+    text = f"{title} {description or ''}"
+    return any(kw in text for kw in TICKET_AGENT_KEYWORDS)
+
+
 def suggest_ticket_reply(merchant_id: int, ticket_title: str, ticket_description: str = "",
                          ticket_status: str = "pending") -> list[dict]:
     """工单话术建议：检索历史相似工单方案 → LLM 生成回复。"""
     text = f"{ticket_title} {ticket_description or ''}"
+
+    # ---- Agent 路径：涉及售后/物流/投诉走 Agent ----
+    if _should_use_ticket_agent(ticket_title, ticket_description):
+        try:
+            from app.ai.agent import create_service_agent, run_agent
+            agent = create_service_agent(merchant_id, "你是工单处理专家，优先使用 search_ticket_history 查询历史方案。")
+            result = run_agent(agent, f"工单：{text}\n请给出处理建议。")
+            suggestions = [{"content": result["reply"], "source": "agent", "confidence": 0.85}]
+            return suggestions
+        except Exception:
+            pass
+
     vec = embed_query(text)
     try:
         result = query_products(merchant_id, vec, n_results=5)
