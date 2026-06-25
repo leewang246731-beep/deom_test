@@ -1,5 +1,10 @@
 <template>
   <div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h3 style="margin:0">工作台</h3>
+      <el-date-picker v-model="dateRange" type="daterange" range-separator="至" start-placeholder="开始" end-placeholder="结束" size="small" style="width:260px" @change="onDateChange" />
+    </div>
+
     <el-row :gutter="16" style="margin-bottom:16px">
       <el-col :span="6" v-for="card in cards" :key="card.title" style="margin-bottom:8px">
         <el-card shadow="hover">
@@ -48,6 +53,7 @@ import { getMetrics, getOrderTrend, getServiceStats, getHotProducts, getShops, g
 const chartDom = ref(null)
 const ticketChartDom = ref(null)
 const trendRange = ref('week')
+const dateRange = ref(null)
 const hotProducts = ref([])
 const serviceStats = ref({ per_service: [], pending: 0, replied: 0, ai_adoption_rate: 0 })
 let chart = null
@@ -70,18 +76,20 @@ const cards = reactive([
   { title: '今日订单', value: 0, icon: 'TrendCharts', color: '#67c23a' },
 ])
 
-async function fetchTrend() {
-  try {
-    const pts = (await getOrderTrend(trendRange.value)).data?.points || []
-    if (chart) chart.setOption({ tooltip:{trigger:'axis'}, xAxis:{type:'category',data:pts.map(p=>p.date?.slice(5)||p.date)}, yAxis:{type:'value'}, series:[{name:'订单数',type:'line',smooth:true,data:pts.map(p=>p.count),areaStyle:{opacity:.1}}] })
-  } catch { /* */ }
-}
+function onDateChange() { fetchAll() }
 
-onMounted(async () => {
+async function fetchAll() {
   try {
-    const [m, shops, convs, trend, stats, hot, tStats, tTrend] = await Promise.all([
-      getMetrics(), getShops().catch(()=>({data:[]})), getConversations({handled_status:'pending'}).catch(()=>({data:{total:0}})),
-      getOrderTrend('week'), getServiceStats(), getHotProducts({top_k:5}), getTicketStats(), getTicketTrend('week'),
+    const params = {}
+    if (dateRange.value?.[0]) {
+      params.start = dateRange.value[0].toISOString().slice(0, 19).replace('T', ' ')
+    }
+    if (dateRange.value?.[1]) {
+      params.end = dateRange.value[1].toISOString().slice(0, 19).replace('T', ' ')
+    }
+    const [m, shops, convs, stats, hot, tStats] = await Promise.all([
+      getMetrics(params), getShops().catch(()=>({data:[]})), getConversations({handled_status:'pending'}).catch(()=>({data:{total:0}})),
+      getServiceStats(), getHotProducts({top_k:5}), getTicketStats(),
     ])
     const md = m.data || {}; const ts = tStats.data || {}
     cards[0].value = md.total_orders || 0
@@ -95,7 +103,17 @@ onMounted(async () => {
     hotProducts.value = (hot.data?.recommendations||[]).slice(0,5)
     serviceStats.value = stats.data || {}
   } catch { /* */ }
+}
 
+async function fetchTrend() {
+  try {
+    const pts = (await getOrderTrend(trendRange.value)).data?.points || []
+    if (chart) chart.setOption({ tooltip:{trigger:'axis'}, xAxis:{type:'category',data:pts.map(p=>p.date?.slice(5)||p.date)}, yAxis:{type:'value'}, series:[{name:'订单数',type:'line',smooth:true,data:pts.map(p=>p.count),areaStyle:{opacity:.1}}] })
+  } catch { /* */ }
+}
+
+onMounted(async () => {
+  fetchAll()
   try {
     await nextTick()
     if (chartDom.value) { chart = echarts.init(chartDom.value); fetchTrend() }

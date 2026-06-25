@@ -39,6 +39,8 @@ class AISuggestLogRequest(BaseModel):
     buyer_question: str
     ai_suggestion: str
     was_adopted: int = 1  # 0:忽略 1:采纳 2:修改后发送
+    quality_score: Optional[int] = None  # 1-5
+    feedback_note: Optional[str] = None
     final_message: Optional[str] = None
 
 

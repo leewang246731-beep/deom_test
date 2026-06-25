@@ -4,11 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 8092",
-    "dev:admin": "vite --port 8092",
+    "dev": "vite --port 8093",
+    "dev:admin": "vite --port 8093",
+    "dev:merchant": "vite --config vite.config.merchant.js",
     "dev:service": "vite --config vite.config.service.js",
     "build": "vite build",
     "build:admin": "vite build --outDir dist-admin",
+    "build:merchant": "vite build --config vite.config.merchant.js",
     "build:service": "vite build --config vite.config.service.js",
     "preview": "vite preview"
   },

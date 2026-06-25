@@ -16,6 +16,14 @@
         <el-menu-item index="/admin/ai-config"><el-icon><Cpu /></el-icon> AI 配置</el-menu-item>
         <el-menu-item index="/admin/knowledge"><el-icon><Reading /></el-icon> 企业知识库</el-menu-item>
         <el-menu-item index="/admin/service-mode"><el-icon><Setting /></el-icon> 客服模式</el-menu-item>
+        <el-menu-item index="/admin/users"><el-icon><User /></el-icon> 用户管理</el-menu-item>
+        <el-menu-item index="/admin/sla-policies"><el-icon><AlarmClock /></el-icon> SLA 策略</el-menu-item>
+        <el-menu-item index="/admin/auto-reply-logs"><el-icon><Notebook /></el-icon> AI 话术日志</el-menu-item>
+        <el-menu-item index="/admin/ticket-categories"><el-icon><FolderOpened /></el-icon> 工单分类</el-menu-item>
+        <el-menu-item index="/admin/webhook-logs"><el-icon><Connection /></el-icon> Webhook 监控</el-menu-item>
+        <el-menu-item index="/admin/audit-logs"><el-icon><WarningFilled /></el-icon> 审计日志</el-menu-item>
+        <el-menu-item index="/admin/live-monitor"><el-icon><Monitor /></el-icon> 实时监控</el-menu-item>
+        <el-menu-item index="/admin/connectors"><el-icon><Connection /></el-icon> 平台连接器</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -78,7 +86,16 @@ const pageTitle = computed(() => {
     '/admin/orders': '订单中心', '/admin/tickets': '工单管理', '/admin/skill-groups': '技能组',
     '/admin/categories': '分类管理', '/admin/recommendations': '推荐管理', '/admin/ai-config': 'AI 配置',
     '/admin/knowledge': '企业知识库', '/admin/service-mode': '客服模式',
+    '/admin/users': '用户管理', '/admin/sla-policies': 'SLA 策略', '/admin/auto-reply-logs': 'AI 话术日志',
+    '/admin/ticket-categories': '工单分类',
+    '/admin/webhook-logs': 'Webhook 监控',
+    '/admin/audit-logs': '审计日志',
+    '/admin/live-monitor': '实时监控',
+    '/admin/connectors': '平台连接器',
   }
+  if (route.path.startsWith('/admin/tickets/')) return '工单详情'
+  if (route.path.startsWith('/admin/products/')) return '商品详情'
+  if (route.path.startsWith('/admin/orders/')) return '订单详情'
   return titles[route.path] || ''
 })
 

@@ -2,7 +2,10 @@
   <div>
     <div style="margin-bottom:16px;display:flex;justify-content:space-between">
       <h3 style="margin:0">订单中心</h3>
-      <el-button type="warning" @click="handleRemind" :loading="reminding">一键催单（未付款）</el-button>
+      <div>
+        <el-button @click="handleExport">导出CSV</el-button>
+        <el-button type="warning" @click="handleRemind" :loading="reminding">一键催单（未付款）</el-button>
+      </div>
     </div>
     <el-card style="margin-bottom:16px">
       <el-row :gutter="12">
@@ -51,7 +54,7 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getOrders, getShops, refundOrder, remindPayment } from '../api'
+import { getOrders, getShops, refundOrder, remindPayment, exportCSV } from '../api'
 import { ElMessage } from 'element-plus'
 
 const orders = ref([])
@@ -90,6 +93,13 @@ async function handleRemind() {
     const res = await remindPayment(1) // shop 1 for demo
     ElMessage.success(`已生成 ${res.data?.count || 0} 条催单话术`)
   } catch { /* */ } finally { reminding.value = false }
+}
+
+function handleExport() {
+  const p = {}
+  if (filters.shop_id) p.shop_id = filters.shop_id
+  if (filters.status) p.status = filters.status
+  exportCSV('orders', p)
 }
 
 onMounted(async () => {

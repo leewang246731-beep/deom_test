@@ -91,6 +91,46 @@ def unbind_shop(
     return ok(msg="已解绑")
 
 
+@router.get("/scheduler-status")
+def scheduler_status():
+    from app.services.scheduler import get_sync_log
+    log = get_sync_log()
+    return ok({
+        "enabled": True,
+        "interval_minutes": 30,
+        "next_run": "每30分钟自动执行",
+        "recent_logs": log[:10],
+    })
+
+
+@router.post("/trigger-sync")
+async def trigger_sync_all():
+    from app.services.scheduler import trigger_sync_all
+    import asyncio
+    asyncio.create_task(trigger_sync_all())
+    return ok(None, msg="全量同步已触发，请稍后查看结果")
+
+
+@router.get("/connectors")
+def connector_status(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    """各平台连接器状态总览。"""
+    shops = db.query(PlatformShop).filter(
+        PlatformShop.merchant_id == current.merchant_id
+    ).order_by(PlatformShop.id).all()
+    result = []
+    for s in shops:
+        product_cnt = db.query(ExternalProduct).filter(ExternalProduct.shop_id == s.id).count()
+        order_cnt = db.query(ExternalOrder).filter(ExternalOrder.shop_id == s.id).count()
+        conv_cnt = db.query(Conversation).filter(Conversation.shop_id == s.id).count()
+        result.append({
+            "id": s.id, "shop_name": s.shop_name, "platform_type": s.platform_type,
+            "sync_status": s.sync_status, "last_sync_at": s.last_sync_at.isoformat() if s.last_sync_at else None,
+            "is_active": s.is_active, "product_count": product_cnt,
+            "order_count": order_cnt, "conversation_count": conv_cnt,
+        })
+    return ok({"connectors": result, "total": len(result)})
+
+
 @router.get("/{shop_id}/status")
 def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
     shop = _get_owned_shop(db, shop_id, current.merchant_id)

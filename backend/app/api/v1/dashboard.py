@@ -24,32 +24,48 @@ def _shop_ids(db: Session, merchant_id: int) -> list:
 
 
 @router.get("/metrics")
-def metrics(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def metrics(
+    start: str = Query(None),
+    end: str = Query(None),
+    current: CurrentUser = Depends(get_current_merchant),
+    db: Session = Depends(get_db),
+):
     mid = current.merchant_id
     shop_ids = _shop_ids(db, mid)
-
-    total_orders = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids)).count() if shop_ids else 0
     today = datetime.now().strftime("%Y-%m-%d")
-    today_orders = db.query(ExternalOrder).filter(
-        ExternalOrder.shop_id.in_(shop_ids) if shop_ids else False,
-        func.date(ExternalOrder.created_at) == today,
-    ).count() if shop_ids else 0
-    pending_convs = db.query(Conversation).filter(
-        Conversation.shop_id.in_(shop_ids) if shop_ids else False,
-        Conversation.handled_status == "pending",
-    ).count() if shop_ids else 0
+
+    def _date_filter(q, col):
+        if start:
+            q = q.filter(col >= start)
+        if end:
+            q = q.filter(col <= end + " 23:59:59")
+        return q
+
+    if shop_ids:
+        base_orders = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids))
+        total_orders = _date_filter(base_orders, ExternalOrder.created_at).count()
+        today_orders = base_orders.filter(func.date(ExternalOrder.created_at) == today).count()
+        base_convs = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids))
+        pending_convs = _date_filter(base_convs, Conversation.created_at).filter(Conversation.handled_status == "pending").count()
+    else:
+        total_orders = today_orders = pending_convs = 0
+
     active_shops = db.query(PlatformShop).filter(
-        PlatformShop.merchant_id == mid, PlatformShop.is_active == 1).count() if shop_ids else 0
-    total_suggs = db.query(AISuggestionLog).count()
-    adopted = db.query(AISuggestionLog).filter(AISuggestionLog.was_adopted > 0).count()
+        PlatformShop.merchant_id == mid, PlatformShop.is_active == 1).count()
+
+    sugg_q = db.query(AISuggestionLog)
+    if start:
+        sugg_q = sugg_q.filter(AISuggestionLog.created_at >= start)
+    if end:
+        sugg_q = sugg_q.filter(AISuggestionLog.created_at <= end + " 23:59:59")
+    total_suggs = sugg_q.count()
+    adopted = sugg_q.filter(AISuggestionLog.was_adopted > 0).count()
     adoption_rate = round(adopted / total_suggs, 2) if total_suggs > 0 else 0
 
-    # 工单指标
-    total_tickets = db.query(Ticket).filter(Ticket.merchant_id == mid).count()
-    pending_tickets = db.query(Ticket).filter(Ticket.merchant_id == mid,
-                                               Ticket.status == "pending").count()
-    today_tickets = db.query(Ticket).filter(Ticket.merchant_id == mid,
-                                             func.date(Ticket.created_at) == today).count()
+    ticket_q = db.query(Ticket).filter(Ticket.merchant_id == mid)
+    total_tickets = _date_filter(ticket_q, Ticket.created_at).count()
+    pending_tickets = _date_filter(db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "pending"), Ticket.created_at).count()
+    today_tickets = db.query(Ticket).filter(Ticket.merchant_id == mid, func.date(Ticket.created_at) == today).count()
     sla_breached = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.sla_breached == 1).count()
 
     return ok({
@@ -140,6 +156,45 @@ def ticket_stats(current: CurrentUser = Depends(get_current_merchant), db: Sessi
     breached = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.sla_breached == 1).count()
     return ok({"total": total, "pending": pending, "in_progress": in_progress,
                "waiting_customer": waiting, "resolved_today": resolved_today, "sla_breached": breached})
+
+
+@router.get("/live-monitor")
+def live_monitor(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    mid = current.merchant_id
+    shop_ids = _shop_ids(db, mid)
+
+    users = db.query(MerchantUser).filter(MerchantUser.merchant_id == mid, MerchantUser.status == 1).all()
+    agents = []
+    for u in users:
+        active_convs = db.query(Conversation).filter(
+            Conversation.shop_id.in_(shop_ids) if shop_ids else False,
+            Conversation.assigned_to == u.id,
+            Conversation.handled_status.in_(["pending", "replied"]),
+        ).count()
+        open_tickets = db.query(Ticket).filter(
+            Ticket.merchant_id == mid, Ticket.assigned_to == u.id,
+            Ticket.status.in_(["pending", "in_progress", "waiting_customer"]),
+        ).count()
+        agents.append({
+            "user_id": u.id, "display_name": u.display_name or u.username,
+            "role": u.role, "active_convs": active_convs, "open_tickets": open_tickets,
+            "total_load": active_convs + open_tickets,
+        })
+    agents.sort(key=lambda x: x["total_load"], reverse=True)
+
+    queue_convs = db.query(Conversation).filter(
+        Conversation.shop_id.in_(shop_ids) if shop_ids else False,
+        Conversation.handled_status == "pending", Conversation.assigned_to.is_(None),
+    ).count()
+    queue_tickets = db.query(Ticket).filter(
+        Ticket.merchant_id == mid, Ticket.status == "pending", Ticket.assigned_to.is_(None),
+    ).count()
+
+    return ok({
+        "agents": agents,
+        "queue": {"unassigned_convs": queue_convs, "unassigned_tickets": queue_tickets},
+        "total_agents": len(agents),
+    })
 
 
 @router.get("/ticket-trend")

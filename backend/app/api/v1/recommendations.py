@@ -96,6 +96,57 @@ def create_rule(
     return ok({"id": rule.id}, msg="已创建")
 
 
+@router.put("/rules/{rule_id}")
+def update_rule(
+    rule_id: int,
+    body: dict,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    rule = db.query(ProductRecommendationRule).filter(
+        ProductRecommendationRule.id == rule_id,
+        ProductRecommendationRule.merchant_id == current.merchant_id,
+    ).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "规则不存在"})
+    for field in ("rule_type", "priority", "is_active"):
+        if field in body:
+            setattr(rule, field, body[field])
+    db.commit()
+    return ok({"id": rule.id, "rule_type": rule.rule_type, "priority": rule.priority, "is_active": rule.is_active}, msg="已更新")
+
+
+@router.post("/rules/auto-generate")
+def auto_generate_rules(
+    top_k: int = Query(20, ge=5, le=100),
+    current: CurrentUser = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+):
+    """从共购矩阵自动生成关联规则"""
+    from app.models.product_co_purchase import ProductCoPurchase
+    pairs = db.query(ProductCoPurchase).filter(
+        ProductCoPurchase.co_count >= 2
+    ).order_by(ProductCoPurchase.score.desc()).limit(top_k).all()
+    created = 0
+    for p in pairs:
+        exist = db.query(ProductRecommendationRule).filter(
+            ProductRecommendationRule.merchant_id == current.merchant_id,
+            ProductRecommendationRule.product_id == p.product_id,
+            ProductRecommendationRule.recommended_product_id == p.co_product_id,
+        ).first()
+        if not exist:
+            db.add(ProductRecommendationRule(
+                merchant_id=current.merchant_id,
+                product_id=p.product_id,
+                recommended_product_id=p.co_product_id,
+                rule_type="auto",
+                priority=int(p.score * 100),
+            ))
+            created += 1
+    db.commit()
+    return ok({"created_rules": created}, msg=f"自动生成 {created} 条规则")
+
+
 @router.delete("/rules/{rule_id}")
 def delete_rule(
     rule_id: int,

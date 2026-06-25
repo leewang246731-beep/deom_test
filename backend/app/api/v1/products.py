@@ -2,9 +2,12 @@
 商品库接口（PHASE1-PLAN 4.3 / api.md 3.3 + REQUIREMENTS-V2 缺口1）
 筛选/详情走 DB；语义搜索 /search 走向量服务；/sync 独立同步商品。
 """
+import csv
+import io
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
@@ -85,6 +88,27 @@ def search_products(
     return ok({"query": q, "results": results})
 
 
+@router.get("/export")
+def export_products(
+    shop_id: int = Query(None), keyword: str = Query(None),
+    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    q = db.query(ExternalProduct).filter(ExternalProduct.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalProduct).filter(False)
+    if shop_id: q = q.filter(ExternalProduct.shop_id == shop_id)
+    if keyword: q = q.filter(ExternalProduct.title.like(f"%{keyword}%"))
+    rows = q.order_by(ExternalProduct.id).all()
+    out = io.StringIO()
+    out.write('﻿')  # UTF-8 BOM for Excel
+    w = csv.writer(out)
+    w.writerow(["ID", "商品名称", "价格", "库存", "分类", "状态", "向量状态"])
+    for p in rows:
+        w.writerow([p.id, p.title, float(p.price), p.stock, p.category_path or "", "在售" if p.status == 1 else "下架", p.embedding_status])
+    out.seek(0)
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=products.csv"})
+
+
 @router.get("/{product_id}")
 def product_detail(product_id: int, current: CurrentUser = Depends(get_current_merchant),
                    db: Session = Depends(get_db)):
@@ -137,3 +161,73 @@ async def sync_products(
     db.commit()
     return ok({"shop_id": shop_id, "new_products": new_p, "updated_products": upd_p,
                "total_products": new_p + upd_p}, msg="商品同步完成")
+
+
+@router.post("")
+def create_product(
+    body: dict,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    if body.get("shop_id") not in shop_ids:
+        raise HTTPException(status_code=403, detail={"code": 40301, "msg": "无权操作该店铺"})
+    p = ExternalProduct(
+        shop_id=body["shop_id"],
+        platform_product_id=body.get("platform_product_id", f"manual_{int(datetime.now().timestamp())}"),
+        title=body["title"],
+        price=body.get("price", 0),
+        stock=body.get("stock", 0),
+        description=body.get("description", ""),
+        images_json=body.get("images_json", []),
+        category_path=body.get("category_path", ""),
+        status=body.get("status", 1),
+        embedding_status="pending",
+        last_sync_at=datetime.now(),
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return ok(_product_dict(p), msg="商品已创建")
+
+
+@router.put("/{product_id}")
+def update_product(
+    product_id: int,
+    body: dict,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    p = db.query(ExternalProduct).filter(
+        ExternalProduct.id == product_id,
+        ExternalProduct.shop_id.in_(shop_ids),
+    ).first()
+    if not p:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "商品不存在"})
+    for field in ("title", "price", "stock", "description", "category_path", "status"):
+        if field in body:
+            setattr(p, field, body[field])
+    if "images_json" in body:
+        p.images_json = body["images_json"]
+    db.commit()
+    db.refresh(p)
+    return ok(_product_dict(p), msg="商品已更新")
+
+
+@router.delete("/{product_id}")
+def delete_product(
+    product_id: int,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    p = db.query(ExternalProduct).filter(
+        ExternalProduct.id == product_id,
+        ExternalProduct.shop_id.in_(shop_ids),
+    ).first()
+    if not p:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "商品不存在"})
+    db.delete(p)
+    db.commit()
+    return ok(None, msg="商品已删除")

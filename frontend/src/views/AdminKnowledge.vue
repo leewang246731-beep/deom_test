@@ -3,7 +3,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h3 style="margin:0">企业知识库</h3>
       <div style="display:flex;gap:8px">
-        <el-button type="primary" @click="kbGetStats().then(r => { stats = r || {} })" :loading="syncLoading">
+        <el-button type="primary" @click="handleSync" :loading="syncLoading">
           <el-icon><Refresh /></el-icon> 同步店铺知识
         </el-button>
         <el-button @click="showAddDoc = true"><el-icon><DocumentAdd /></el-icon> 添加文档</el-button>
@@ -130,7 +130,12 @@ const syncLoading = ref(false)
 const docForm = reactive({ title: '', content: '', source_type: 'manual' })
 const token = localStorage.getItem('token') || ''
 
-async function fetchStats() { try { stats.value = await kbGetStats() || {} } catch {} }
+async function fetchStats() { try { const r = await kbGetStats(); stats.value = r || {} } catch {} }
+async function handleSync() {
+  syncLoading.value = true
+  try { await kbSyncShop({}); ElMessage.success('同步已启动'); fetchStats(); fetchDocs() }
+  catch { /* */ } finally { syncLoading.value = false }
+}
 async function fetchDocs() {
   docLoading.value = true
   try { documents.value = (await kbGetDocuments({ page: 1, page_size: 50 }))?.items || [] } catch {}

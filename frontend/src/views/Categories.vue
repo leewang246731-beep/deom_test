@@ -11,13 +11,14 @@
           <span style="margin-left:8px;color:#909399;font-size:12px">Lv{{ data.level }}</span>
           <span style="margin-left:12px">
             <el-button size="small" text @click="openAdd(data)">添加子分类</el-button>
+            <el-button size="small" text @click="openEdit(data)">编辑</el-button>
             <el-button size="small" text type="danger" @click="handleDelete(data)">删除</el-button>
           </span>
         </template>
       </el-tree>
     </el-card>
 
-    <el-dialog v-model="showDialog" title="分类" width="400px">
+    <el-dialog v-model="showDialog" :title="isEdit ? '编辑分类' : '新建分类'" width="400px">
       <el-form :model="form" label-width="80px">
         <el-form-item label="名称"><el-input v-model="form.name" placeholder="分类名称" /></el-form-item>
         <el-form-item label="父级" v-if="form.parent_id"><el-input :model-value="parentName" disabled /></el-form-item>
@@ -32,11 +33,13 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { getCategories, createCategory, deleteCategory } from '../api'
+import { getCategories, createCategory, updateCategory, deleteCategory } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const tree = ref([])
 const showDialog = ref(false)
+const isEdit = ref(false)
+const editCatId = ref(null)
 const form = ref({ name: '', parent_id: null })
 const parentName = ref('')
 
@@ -45,15 +48,29 @@ async function fetch() {
 }
 
 function openAdd(parent) {
+  isEdit.value = false; editCatId.value = null
   form.value = { name: '', parent_id: parent?.id || null }
   parentName.value = parent?.name || ''
   showDialog.value = true
 }
 
+function openEdit(data) {
+  isEdit.value = true; editCatId.value = data.id
+  form.value = { name: data.name, parent_id: data.parent_id || null }
+  parentName.value = ''
+  showDialog.value = true
+}
+
 async function handleSave() {
   if (!form.value.name.trim()) return ElMessage.warning('请输入分类名称')
-  await createCategory({ name: form.value.name, parent_id: form.value.parent_id || undefined })
-  ElMessage.success('已创建'); showDialog.value = false; fetch()
+  if (isEdit.value) {
+    await updateCategory(editCatId.value, { name: form.value.name })
+    ElMessage.success('已更新')
+  } else {
+    await createCategory({ name: form.value.name, parent_id: form.value.parent_id || undefined })
+    ElMessage.success('已创建')
+  }
+  showDialog.value = false; fetch()
 }
 
 async function handleDelete(data) {

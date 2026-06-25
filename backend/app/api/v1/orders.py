@@ -2,7 +2,11 @@
 订单中心接口（PHASE1-PLAN 4.4 / api.md 3.4）
 列表/筛选/详情走 DB；售后用 Redis 分布式锁防并发；催单委托步骤6 AI Pipeline。
 """
+import csv
+import io
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
@@ -81,6 +85,29 @@ def remind_pending(
         return ok(result)
     except Exception as e:
         return ok({"reminders": [], "count": 0, "total_pending": 0, "has_more": False, "note": f"AI 催单待步骤6 接入: {e}"})
+
+
+@router.get("/export")
+def export_orders(
+    shop_id: int = Query(None), status: str = Query(None),
+    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalOrder).filter(False)
+    if shop_id: q = q.filter(ExternalOrder.shop_id == shop_id)
+    if status: q = q.filter(ExternalOrder.status == status)
+    rows = q.order_by(ExternalOrder.created_at.desc()).all()
+    out = io.StringIO()
+    out.write('﻿')
+    w = csv.writer(out)
+    w.writerow(["ID", "平台订单号", "买家", "金额", "实付", "状态", "收货人", "电话", "地址", "下单时间"])
+    for o in rows:
+        w.writerow([o.id, o.platform_order_id, o.buyer_nick, float(o.total_amount), float(o.pay_amount),
+                     o.status, o.receiver_name or "", o.receiver_phone or "", o.receiver_address or "",
+                     o.created_at.isoformat() if o.created_at else ""])
+    out.seek(0)
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=orders.csv"})
 
 
 @router.get("/{order_id}")

@@ -2,11 +2,12 @@
   <el-container style="height:100vh">
     <el-aside width="200px" style="background:#1f2d3d">
       <div style="color:#fff;text-align:center;padding:20px 0;font-size:16px;font-weight:bold">vMall 运营后台</div>
-      <el-menu :default-active="$route.path" router background-color="#1f2d3d" text-color="#bfcbd9" active-text-color="#409eff">
+      <el-menu :default-active="activeMenu" router background-color="#1f2d3d" text-color="#bfcbd9" active-text-color="#409eff">
         <el-menu-item index="/dashboard"><el-icon><DataAnalysis/></el-icon> 总览</el-menu-item>
         <el-menu-item index="/orders"><el-icon><Document/></el-icon> 订单</el-menu-item>
         <el-menu-item index="/after-sales"><el-icon><Warning/></el-icon> 售后</el-menu-item>
-        <el-menu-item index="/messages"><el-icon><ChatDotRound/></el-icon> 客服消息</el-menu-item>
+        <el-menu-item index="/conversations"><el-icon><ChatDotRound/></el-icon> 客服消息</el-menu-item>
+        <el-menu-item index="/logistics"><el-icon><Van/></el-icon> 物流管理</el-menu-item>
         <el-menu-item index="/wallets"><el-icon><Wallet/></el-icon> 钱包管理</el-menu-item>
         <el-menu-item index="/settings"><el-icon><Setting/></el-icon> 系统设置</el-menu-item>
       </el-menu></el-aside>
@@ -35,15 +36,28 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
+const activeMenu = computed(() => {
+  const path = route.path
+  if (path.startsWith('/orders')) return '/orders'
+  if (path.startsWith('/after-sales')) return '/after-sales'
+  if (path.startsWith('/conversations')) return '/conversations'
+  if (path.startsWith('/logistics')) return '/logistics'
+  if (path.startsWith('/wallets')) return '/wallets'
+  if (path.startsWith('/settings')) return '/settings'
+  return '/dashboard'
+})
+
 const showBack = computed(() => route.path !== '/dashboard')
 const pageTitle = computed(() => {
-  const titles = {
-    '/dashboard': '总览', '/orders': '订单管理', '/after-sales': '售后管理',
-    '/messages': '客服消息', '/wallets': '钱包管理', '/settings': '系统设置',
-  }
-  return titles[route.path] || ''
+  const path = route.path
+  if (path.startsWith('/orders')) return '订单管理'
+  if (path.startsWith('/after-sales')) return '售后管理'
+  if (path.startsWith('/conversations')) return '客服消息'
+  if (path.startsWith('/logistics')) return '物流管理'
+  if (path.startsWith('/wallets')) return '钱包管理'
+  if (path.startsWith('/settings')) return '系统设置'
+  return '总览'
 })
-const cachedViews = ['Dashboard', 'Orders', 'AfterSales', 'Messages', 'Wallets', 'Settings']
 
 function goBack() {
   if (window.history.length > 2) router.back()

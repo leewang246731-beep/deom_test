@@ -4,7 +4,7 @@
     <!-- 左栏：会话列表 -->
     <div style="width:260px;flex-shrink:0;display:flex;flex-direction:column">
       <el-card shadow="never" style="flex:1;overflow:auto" body-style="padding:0">
-        <template #header><span style="font-weight:bold">会话列表</span><el-tag size="small" style="margin-left:8px" type="danger">{{ pendingCount }}</el-tag></template>
+        <template #header><span style="font-weight:bold">会话列表</span><el-tag size="small" style="margin-left:8px" type="danger">{{ pendingCount }}</el-tag><el-button size="small" text style="float:right" @click="handleExportConvs">导出</el-button></template>
         <div v-for="c in conversations" :key="c.id" :style="{padding:'12px',cursor:'pointer',background: activeConv?.id === c.id ? '#ecf5ff' : '',borderBottom:'1px solid #ebeef5'}" @click="selectConv(c)">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <strong style="font-size:14px">{{ c.buyer_nick }}</strong>
@@ -105,7 +105,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage } from '../api'
+import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage, exportCSV } from '../api'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -246,5 +246,6 @@ function setupWS() {
 onMounted(async () => {
   fetchList(); setupWS(); pollTimer = setInterval(fetchList, 3000)
 })
+function handleExportConvs() { exportCSV('conversations') }
 onUnmounted(() => { if (ws) ws.close(); if (pollTimer) clearInterval(pollTimer) })
 </script>

@@ -55,8 +55,11 @@ async def _timeout_checker():
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine, checkfirst=True)
     task = asyncio.create_task(_timeout_checker())
+    from app.services.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
     yield
     task.cancel()
+    stop_scheduler()
 
 
 app = FastAPI(
@@ -91,7 +94,7 @@ def health_check_db():
 
 
 # ===== 业务路由注册区（步骤4）=====
-from app.api.v1 import ai, auth, categories, conversations, dashboard, orders, products, recommendations, shops, skill_groups, sla, tickets, webhooks, service_mode, openapi
+from app.api.v1 import ai, audit, auth, categories, conversations, dashboard, orders, products, recommendations, shops, skill_groups, sla, tickets, users, webhook_logs, webhooks, service_mode, openapi
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(shops.router, prefix=settings.API_PREFIX)
@@ -106,6 +109,9 @@ app.include_router(skill_groups.router, prefix=settings.API_PREFIX)
 app.include_router(sla.router, prefix=settings.API_PREFIX)
 app.include_router(webhooks.router, prefix=settings.API_PREFIX)
 app.include_router(service_mode.router, prefix=settings.API_PREFIX)
+app.include_router(users.router, prefix=settings.API_PREFIX)
+app.include_router(audit.router, prefix=settings.API_PREFIX)
+app.include_router(webhook_logs.router, prefix=settings.API_PREFIX)
 app.include_router(openapi.router, prefix=settings.API_PREFIX)
 
 # 知识库

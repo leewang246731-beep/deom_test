@@ -5,7 +5,7 @@
       <el-button type="primary" @click="openAddGroup">新建技能组</el-button>
     </div>
 
-    <el-row :gutter="16">
+    <el-row :gutter="16" v-loading="loading">
       <el-col :span="8" v-for="g in groups" :key="g.id">
         <el-card>
           <template #header>
@@ -61,10 +61,10 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getSkillGroups, createSkillGroup, updateSkillGroup, deleteSkillGroup, addSkillMember, removeSkillMember, getShops } from '../api'
+import { getSkillGroups, createSkillGroup, updateSkillGroup, deleteSkillGroup, addSkillMember, removeSkillMember } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-const groups = ref([]); const userOptions = ref([])
+const groups = ref([]); const userOptions = ref([]); const loading = ref(false)
 const showGroupDialog = ref(false); const showMemberDialog = ref(false)
 const editGroupId = ref(null); const addMemberGid = ref(null)
 
@@ -72,7 +72,9 @@ const groupForm = reactive({ name: '', description: '', is_active: true })
 const memberForm = reactive({ user_id: null, skill_tags: [] })
 
 async function fetch() {
+  loading.value = true
   try { groups.value = (await getSkillGroups()).data || [] } catch { /* */ }
+  finally { loading.value = false }
 }
 
 function openAddGroup() { editGroupId.value = null; Object.assign(groupForm, { name: '', description: '', is_active: true }); showGroupDialog.value = true }

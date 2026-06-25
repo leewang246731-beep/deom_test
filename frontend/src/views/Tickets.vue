@@ -2,7 +2,10 @@
   <div>
     <div style="margin-bottom:16px;display:flex;justify-content:space-between">
       <h3 style="margin:0">工单管理</h3>
-      <el-button type="primary" @click="showCreate = true">新建工单</el-button>
+      <div>
+        <el-button @click="handleExport">导出CSV</el-button>
+        <el-button type="primary" @click="showCreate = true">新建工单</el-button>
+      </div>
     </div>
 
     <el-card style="margin-bottom:16px">
@@ -14,7 +17,15 @@
       </el-row>
     </el-card>
 
-    <el-table :data="tickets" border stripe v-loading="loading" @row-click="goDetail" style="cursor:pointer">
+    <div v-if="selectedRows.length" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;padding:8px 16px;background:#ecf5ff;border-radius:6px">
+      <span style="font-size:13px">已选 <strong>{{ selectedRows.length }}</strong> 个工单</span>
+      <el-button size="small" @click="handleBatchAssign">批量分配</el-button>
+      <el-button size="small" type="danger" @click="handleBatchClose">批量关闭</el-button>
+      <el-button size="small" text @click="selectedRows = []">取消选择</el-button>
+    </div>
+
+    <el-table :data="tickets" border stripe v-loading="loading" @row-click="goDetail" @selection-change="onSelectChange" style="cursor:pointer">
+      <el-table-column type="selection" width="40" />
       <el-table-column prop="ticket_no" label="编号" width="120" />
       <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
       <el-table-column label="优先级" width="80"><template #default="{row}"><el-tag :type="priTag(row.priority)" size="small">{{row.priority}}</el-tag></template></el-table-column>
@@ -43,8 +54,8 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getTickets, createTicket, preClassify, getSkillGroups } from '../api'
-import { ElMessage } from 'element-plus'
+import { getTickets, createTicket, batchTickets, preClassify, getSkillGroups, exportCSV } from '../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const tickets = ref([]); const loading = ref(false); const total = ref(0); const page = ref(1)
@@ -52,6 +63,7 @@ const showCreate = ref(false); const creating = ref(false); const aiClassifying 
 const f = reactive({ status: null, priority: null, assigned_to: null })
 const create = reactive({ title: '', description: '', priority: 'P3', source: 'manual', source_id: null })
 const userOptions = ref([])
+const selectedRows = ref([])
 const statuses = ['pending', 'in_progress', 'waiting_customer', 'resolved', 'closed']
 
 function priTag(p) { return {P0:'danger',P1:'warning',P2:'',P3:'info'}[p]||'' }
@@ -82,6 +94,28 @@ async function autoClassify() {
   if (!create.title.trim()) return ElMessage.warning('请先输入标题')
   aiClassifying.value = true
   try { const r = await preClassify({ title: create.title, description: create.description }); const d = r.data; aiResult.value = `优先级: ${d.suggested_priority}`; create.priority = d.suggested_priority } finally { aiClassifying.value = false }
+}
+
+function onSelectChange(rows) { selectedRows.value = rows }
+
+async function handleBatchAssign() {
+  const ids = selectedRows.value.map(r => r.id)
+  await ElMessageBox.confirm(`确定将 ${ids.length} 个工单分配给自己？`, '确认')
+  try { await batchTickets({ action: 'assign', ticket_ids: ids }); ElMessage.success('已分配'); selectedRows.value = []; fetch() } catch {}
+}
+
+async function handleBatchClose() {
+  const ids = selectedRows.value.map(r => r.id)
+  await ElMessageBox.confirm(`确定批量关闭 ${ids.length} 个工单？`, '危险操作', { type: 'warning' })
+  try { await batchTickets({ action: 'close', ticket_ids: ids }); ElMessage.success('已关闭'); selectedRows.value = []; fetch() } catch {}
+}
+
+function handleExport() {
+  const p = {}
+  if (f.status) p.status = f.status
+  if (f.priority) p.priority = f.priority
+  if (f.assigned_to) p.assigned_to = f.assigned_to
+  exportCSV('tickets', p)
 }
 
 onMounted(async () => {

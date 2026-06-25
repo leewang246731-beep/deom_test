@@ -17,10 +17,10 @@ export default defineConfig({
     },
   ],
   server: {
-    port: 8094,
+    port: 8095,
     proxy: {
-      '/api': 'http://127.0.0.1:8010',
-      '/ws': { target: 'ws://127.0.0.1:8010', ws: true },
+      '/api': 'http://127.0.0.1:8011',
+      '/ws': { target: 'ws://127.0.0.1:8011', ws: true },
     },
   },
   build: {

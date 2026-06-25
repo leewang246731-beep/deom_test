@@ -8,11 +8,22 @@ export const getShops = () => http.get('/shops')
 export const bindShop = (data) => http.post('/shops', data)
 export const unbindShop = (id) => http.delete(`/shops/${id}`)
 export const syncShop = (id) => http.post(`/shops/${id}/sync`)
+export const getSchedulerStatus = () => http.get('/shops/scheduler-status')
+export const triggerSyncAll = () => http.post('/shops/trigger-sync')
 
 // ---- products ----
 export const getProducts = (params) => http.get('/products', { params })
 export const searchProducts = (q, shopId) => http.get('/products/search', { params: { q, shop_id: shopId } })
 export const syncProducts = (shopId) => http.post(`/products/sync/${shopId}`)
+export const createProduct = (data) => http.post('/products', data)
+export const updateProduct = (id, data) => http.put(`/products/${id}`, data)
+export const deleteProduct = (id) => http.delete(`/products/${id}`)
+
+// ---- users ----
+export const getUsers = (params) => http.get('/users', { params })
+export const createUser = (data) => http.post('/users', data)
+export const updateUser = (id, data) => http.put(`/users/${id}`, data)
+export const deleteUser = (id) => http.delete(`/users/${id}`)
 
 // ---- orders ----
 export const getOrders = (params) => http.get('/orders', { params })
@@ -38,9 +49,10 @@ export const deleteAIStyle = (id) => http.delete(`/ai/styles/${id}`)
 export const setDefaultStyle = (id) => http.post(`/ai/styles/${id}/default`)
 
 // ---- dashboard ----
-export const getMetrics = () => http.get('/dashboard/metrics')
+export const getMetrics = (params) => http.get('/dashboard/metrics', { params })
 export const getOrderTrend = (range) => http.get('/dashboard/order-trend', { params: { range } })
 export const getServiceStats = () => http.get('/dashboard/service-stats')
+export const getLiveMonitor = () => http.get('/dashboard/live-monitor')
 
 // ---- recommendations ----
 export const getSimilarProducts = (data) => http.post('/recommendations/similar', data)
@@ -48,7 +60,9 @@ export const getBuyerRecommendations = (data) => http.post('/recommendations/for
 export const getHotProducts = (params) => http.get('/recommendations/hot', { params })
 export const getRecommendationRules = () => http.get('/recommendations/rules')
 export const createRecommendationRule = (data) => http.post('/recommendations/rules', data)
+export const updateRecommendationRule = (id, data) => http.put(`/recommendations/rules/${id}`, data)
 export const deleteRecommendationRule = (id) => http.delete(`/recommendations/rules/${id}`)
+export const autoGenerateRules = (topK) => http.post(`/recommendations/rules/auto-generate?top_k=${topK || 20}`)
 export const rebuildCoPurchase = () => http.post('/recommendations/rebuild-co-purchase')
 
 // ---- service mode ----
@@ -77,6 +91,9 @@ export const autoClassifyTicket = (id) => http.post(`/tickets/${id}/auto-classif
 export const autoSummarizeTicket = (id) => http.post(`/tickets/${id}/auto-summarize`)
 export const ticketAISuggest = (id) => http.post(`/tickets/${id}/ai-suggest`)
 export const getTicketCategories = () => http.get('/tickets/categories')
+export const createTicketCategory = (data) => http.post('/tickets/categories', data)
+export const updateTicketCategory = (id, data) => http.put(`/tickets/categories/${id}`, data)
+export const deleteTicketCategory = (id) => http.delete(`/tickets/categories/${id}`)
 export const preClassify = (data) => http.post('/tickets/auto-classify', data)
 
 // ---- skill groups ----
@@ -96,6 +113,27 @@ export const deleteSLAPolicy = (id) => http.delete(`/sla/policies/${id}`)
 // ---- dashboard tickets ----
 export const getTicketStats = () => http.get('/dashboard/ticket-stats')
 export const getTicketTrend = (range) => http.get('/dashboard/ticket-trend', { params: { range } })
+
+// ---- batch ----
+export const batchTickets = (data) => http.post('/tickets/batch', data)
+
+// ---- audit ----
+export const getAuditLogs = (params) => http.get('/audit-logs', { params })
+
+// ---- webhook logs ----
+export const getWebhookLogs = (params) => http.get('/webhook-logs', { params })
+export const retryWebhook = (id) => http.post(`/webhook-logs/${id}/retry`)
+
+// ---- export ----
+export const exportCSV = async (resource, params = {}) => {
+  try {
+    const resp = await http.get(`/${resource}/export`, { params, responseType: 'blob' })
+    const url = URL.createObjectURL(resp)
+    const a = document.createElement('a')
+    a.href = url; a.download = `${resource}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  } catch { /* user cancelled or error shown by interceptor */ }
+}
 
 // ---- knowledge base ----
 export const kbAsk = (data) => http.post('/kb/ask', data)

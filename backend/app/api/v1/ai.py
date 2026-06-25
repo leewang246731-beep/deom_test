@@ -78,6 +78,8 @@ def ai_suggest_log(
         buyer_question=body.buyer_question,
         ai_suggestion=body.ai_suggestion,
         was_adopted=body.was_adopted,
+        quality_score=body.quality_score,
+        feedback_note=body.feedback_note,
         final_message=body.final_message,
     )
     db.add(log)

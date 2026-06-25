@@ -3,10 +3,13 @@
 会话列表/详情/分配/关闭走 DB；WebSocket /ws/service 实时推送。
 """
 import asyncio
+import csv
+import io
 import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import CurrentUser, get_current_merchant
@@ -58,6 +61,29 @@ def list_conversations(
     total = q.count()
     items = q.order_by(Conversation.last_message_at.desc()).offset((page_no - 1) * page_size).limit(page_size).all()
     return page([_conv_brief(c) for c in items], total, page_no, page_size)
+
+
+@router.get("/conversations/export")
+def export_conversations(
+    shop_id: int = Query(None), handled_status: str = Query(None),
+    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+):
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    q = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids)) if shop_ids else db.query(Conversation).filter(False)
+    if shop_id: q = q.filter(Conversation.shop_id == shop_id)
+    if handled_status: q = q.filter(Conversation.handled_status == handled_status)
+    rows = q.order_by(Conversation.last_message_at.desc()).all()
+    out = io.StringIO()
+    out.write('﻿')
+    w = csv.writer(out)
+    w.writerow(["ID", "买家", "商品ID", "状态", "处理人", "模式", "自动回复数", "最近消息时间"])
+    for c in rows:
+        w.writerow([c.id, c.buyer_nick, c.product_id or "", c.handled_status, c.assigned_to or "",
+                     c.current_mode or "", c.auto_reply_count or 0,
+                     c.last_message_at.isoformat() if c.last_message_at else ""])
+    out.seek(0)
+    return StreamingResponse(iter([out.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=conversations.csv"})
 
 
 @router.get("/conversations/{conv_id}")

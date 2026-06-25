@@ -4,7 +4,7 @@ import { ElMessage } from 'element-plus'
 const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
 
 http.interceptors.request.use(c => {
-  const t = localStorage.getItem('vmall_admin_token')
+  const t = localStorage.getItem('admin_token')
   if (t) c.headers.Authorization = `Bearer ${t}`
   return c
 })
@@ -16,8 +16,8 @@ http.interceptors.response.use(
     const msg = typeof detail === 'object' ? (detail.msg || '请求失败') : (detail || '请求失败')
     if (e.response?.status === 401) {
       ElMessage.error('登录已过期，请重新登录')
-      localStorage.removeItem('vmall_admin_token')
-      localStorage.removeItem('vmall_admin_user')
+      localStorage.removeItem('admin_token')
+      localStorage.removeItem('admin_user')
       window.location.hash = '#/login'
     } else {
       ElMessage.error(msg)

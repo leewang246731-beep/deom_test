@@ -22,6 +22,8 @@ from app.models.ticket_assignment import TicketAssignment
 from app.models.ticket_category import TicketCategory
 from app.models.ticket_comment import TicketComment
 from app.models.service_mode import ServiceModeConfig, AutoReplyLog
+from app.models.audit_log import AuditLog
+from app.models.webhook_delivery_log import WebhookDeliveryLog
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 
 __all__ = [
@@ -31,5 +33,6 @@ __all__ = [
     "SkillGroup", "SkillMember", "SLAPolicy",
     "Ticket", "TicketAssignment", "TicketCategory", "TicketComment",
     "ServiceModeConfig", "AutoReplyLog",
+    "AuditLog", "WebhookDeliveryLog",
     "KbDocument", "KbChunk", "KbConversation", "KbMessage",
 ]
