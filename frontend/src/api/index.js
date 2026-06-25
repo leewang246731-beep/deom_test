@@ -25,6 +25,7 @@ export const getConversations = (params) => http.get('/conversations', { params 
 export const getConversation = (id) => http.get(`/conversations/${id}`)
 export const assignConversation = (id) => http.post(`/conversations/${id}/assign`)
 export const closeConversation = (id) => http.post(`/conversations/${id}/close`)
+export const sendConversationMessage = (id, data) => http.post(`/conversations/${id}/messages`, data)
 
 // ---- ai ----
 export const aiSuggest = (data) => http.post('/ai/suggest', data)
@@ -50,7 +51,13 @@ export const createRecommendationRule = (data) => http.post('/recommendations/ru
 export const deleteRecommendationRule = (id) => http.delete(`/recommendations/rules/${id}`)
 export const rebuildCoPurchase = () => http.post('/recommendations/rebuild-co-purchase')
 
-// ---- categories ----
+// ---- service mode ----
+export const getServiceModeConfig = () => http.get('/service-mode/config')
+export const updateServiceModeConfig = (data) => http.put('/service-mode/config', data)
+export const setConvMode = (id, mode) => http.post(`/service-mode/conversations/${id}/mode`, { mode })
+export const takeoverConv = (id) => http.post(`/service-mode/conversations/${id}/takeover`)
+export const getAutoReplyLogs = (params) => http.get('/service-mode/auto-reply-logs', { params })
+export const getAutoReplyStats = () => http.get('/service-mode/stats')
 export const getCategories = () => http.get('/categories')
 export const createCategory = (data) => http.post('/categories', data)
 export const updateCategory = (id, data) => http.put(`/categories/${id}`, data)
@@ -89,3 +96,14 @@ export const deleteSLAPolicy = (id) => http.delete(`/sla/policies/${id}`)
 // ---- dashboard tickets ----
 export const getTicketStats = () => http.get('/dashboard/ticket-stats')
 export const getTicketTrend = (range) => http.get('/dashboard/ticket-trend', { params: { range } })
+
+// ---- knowledge base ----
+export const kbAsk = (data) => http.post('/kb/ask', data)
+export const kbGetDocuments = (params) => http.get('/kb/documents', { params })
+export const kbCreateDocument = (data) => http.post('/kb/documents', data)
+export const kbDeleteDocument = (id) => http.delete(`/kb/documents/${id}`)
+export const kbGetConversations = (params) => http.get('/kb/conversations', { params })
+export const kbCreateConversation = (data) => http.post('/kb/conversations', data)
+export const kbGetMessages = (convId) => http.get(`/kb/conversations/${convId}/messages`)
+export const kbGetStats = () => http.get('/kb/stats')
+export const kbSyncShop = (data) => http.post('/kb/sync', data)

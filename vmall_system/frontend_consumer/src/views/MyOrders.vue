@@ -1,7 +1,8 @@
 <template>
   <div style="max-width:800px;margin:0 auto;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="margin:0">我的订单</h2><el-button text @click="$router.push('/home')">返回首页</el-button></div>
+      <h2 style="margin:0">我的订单</h2>
+    </div>
     <el-tabs v-model="tab" @tab-change="fetch"><el-tab-pane label="全部" value=""/><el-tab-pane label="待支付" value="pending_payment"/><el-tab-pane label="待发货" value="paid"/><el-tab-pane label="待收货" value="shipped"/></el-tabs>
     <el-card v-for="o in orders" :key="o.id" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center">

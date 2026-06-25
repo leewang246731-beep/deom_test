@@ -68,12 +68,22 @@ from app.api.admin.settings import router as admin_settings
 from app.api.admin.logistics import router as admin_logistics
 from app.api.admin.wallet import router as admin_wallet
 
+from app.api.merchant.auth import router as merchant_auth
+from app.api.merchant.dashboard import router as merchant_dashboard
+from app.api.merchant.products import router as merchant_products
+from app.api.merchant.orders import router as merchant_orders
+from app.api.merchant.conversations import router as merchant_convs
+from app.api.merchant.settings import router as merchant_settings
+from app.api.merchant.binding import router as merchant_binding
+
 from app.api.openapi.router import router as openapi_router
 from app.api.openapi.logistics import router as openapi_logistics
 
-consumer_routers = [consumer_auth, consumer_products, consumer_orders, consumer_convs, consumer_as, consumer_profile,
-                    admin_auth, admin_orders, admin_as, admin_convs, admin_settings, admin_logistics, admin_wallet]
-for r in consumer_routers:
+v1_routers = [consumer_auth, consumer_products, consumer_orders, consumer_convs, consumer_as, consumer_profile,
+              admin_auth, admin_orders, admin_as, admin_convs, admin_settings, admin_logistics, admin_wallet,
+              merchant_auth, merchant_dashboard, merchant_products, merchant_orders, merchant_convs,
+              merchant_settings, merchant_binding]
+for r in v1_routers:
     app.include_router(r, prefix="/api/v1")
 app.include_router(openapi_router)
 app.include_router(openapi_logistics)

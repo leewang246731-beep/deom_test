@@ -13,4 +13,7 @@ app.use(ElementPlus, { locale: { el: { /* use default zh-CN locale from element-
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
+app.config.errorHandler = (err, instance, info) => {
+  console.error('[Vue errorHandler]', err, info)
+}
 app.mount('#app')

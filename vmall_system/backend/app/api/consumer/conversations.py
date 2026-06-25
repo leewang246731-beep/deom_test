@@ -5,11 +5,15 @@ from sqlalchemy.orm import Session
 from app.core.response import ok
 from app.core.security import decode_token
 from app.database.session import get_db, SessionLocal
+from app.models.vm_buyer import VmBuyer
 from app.models.vm_conversation import VmConversation
+from app.models.vm_merchant import VmMerchant
 from app.models.vm_message import VmMessage
+from app.models.vm_product import VmProduct
 from app.services.webhook import dispatch
 
 router = APIRouter(prefix="/consumer/conversations", tags=["消费者-会话"])
+INTERNAL_KEY = "vmall-internal-demo-key"
 
 
 def _get_buyer(auth: str) -> int:
@@ -17,15 +21,50 @@ def _get_buyer(auth: str) -> int:
     return int(payload["sub"])
 
 
+def _merchant_info(db: Session, conv_id: int) -> dict:
+    """返回会话对应的 {merchant_id, saas_shop_id, saas_url}。"""
+    c = db.query(VmConversation).filter(VmConversation.id == conv_id).first()
+    if not c or not c.merchant_id:
+        return {}
+    m = db.query(VmMerchant).filter(VmMerchant.id == c.merchant_id).first()
+    if not m or not m.saas_bound:
+        return {"merchant_id": c.merchant_id}
+    return {"merchant_id": c.merchant_id, "saas_shop_id": m.saas_shop_id, "saas_url": m.saas_url}
+
+
 @router.post("")
 def create_conv(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
     buyer_id = _get_buyer(authorization)
-    c = VmConversation(buyer_id=buyer_id, product_id=body.get("product_id"),
-                        order_id=body.get("order_id"),
+    # 根据 product_id 推断 merchant_id
+    merchant_id = 1
+    pid = body.get("product_id")
+    if pid:
+        p = db.query(VmProduct).filter(VmProduct.id == pid).first()
+        if p:
+            merchant_id = p.merchant_id
+    c = VmConversation(buyer_id=buyer_id, merchant_id=merchant_id,
+                        product_id=pid, order_id=body.get("order_id"),
                         buyer_ip_region=body.get("ip_region", "江苏·南京"),
                         buyer_last_online=datetime.now())
     db.add(c); db.commit()
     return ok({"id": c.id})
+
+
+@router.post("/{conv_id}/messages/internal")
+def receive_saas_reply(conv_id: int, body: dict, db: Session = Depends(get_db)):
+    """SaaS 客服回复 → vMall VmMessage（内部服务调用，双向桥接：回程）"""
+    if body.get("api_key") != INTERNAL_KEY:
+        raise HTTPException(status_code=403, detail={"code": 40300, "msg": "无权访问"})
+    c = db.query(VmConversation).filter(VmConversation.id == conv_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    msg = VmMessage(conversation_id=conv_id, sender_role="admin",
+                    msg_type=body.get("msg_type", "text"),
+                    content_json={"text": body.get("content", "")})
+    db.add(msg)
+    c.last_message_at = datetime.now()
+    db.commit()
+    return ok({"id": msg.id})
 
 
 @router.post("/{conv_id}/messages")
@@ -39,9 +78,21 @@ def send_message(conv_id: int, body: dict, authorization: str = Header(None),
                     msg_type=body.get("msg_type", "text"),
                     content_json=body.get("content", {"text": body.get("text", "")}))
     db.add(msg); c.last_message_at = datetime.now(); c.buyer_last_online = datetime.now(); db.commit()
-    dispatch(SessionLocal, "NEW_MESSAGE", {"conversation_id": conv_id, "sender_role": "buyer",
-                                            "content": body.get("content", {}),
-                                            "msg_type": body.get("msg_type", "text")})
+
+    buyer = db.query(VmBuyer).filter(VmBuyer.id == buyer_id).first()
+    mi = _merchant_info(db, conv_id)
+    dispatch(SessionLocal, "NEW_MESSAGE", {
+        "conversation_id": conv_id, "sender_role": "buyer",
+        "content": body.get("content", {}),
+        "msg_type": body.get("msg_type", "text"),
+        "buyer_nick": buyer.nickname if buyer else f"买家{buyer_id}",
+        "buyer_id": buyer_id,
+        "product_id": c.product_id,
+        "merchant_id": c.merchant_id,
+        "saas_shop_id": mi.get("saas_shop_id"),
+        "_merchant_id": c.merchant_id,
+        "created_at": msg.created_at.isoformat() if msg.created_at else None,
+    })
     return ok({"id": msg.id})
 
 

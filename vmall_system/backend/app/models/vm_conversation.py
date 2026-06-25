@@ -1,5 +1,5 @@
 """会话表"""
-from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, String, func
+from sqlalchemy import BigInteger, Column, DateTime, ForeignKey, Integer, String, func
 from app.database.session import Base
 
 
@@ -7,6 +7,7 @@ class VmConversation(Base):
     __tablename__ = "vm_conversations"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
+    merchant_id = Column(Integer, nullable=False, default=1, comment="商户ID")
     buyer_id = Column(BigInteger, ForeignKey("vm_buyers.id"), nullable=False)
     admin_id = Column(BigInteger, nullable=True, comment="分配的客服")
     order_id = Column(BigInteger, ForeignKey("vm_orders.id"), nullable=True)

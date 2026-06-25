@@ -1,0 +1,137 @@
+"""SaaS OpenAPI — vMall 绑定 + 注册。共享密钥 API Key + JWT 双模式鉴权。"""
+import secrets
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlalchemy.orm import Session
+
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.core.config import settings
+from app.core.response import ok
+from app.database.session import get_db
+from app.models.merchant import Merchant
+from app.models.platform_shop import PlatformShop
+
+router = APIRouter(prefix="/openapi", tags=["OpenAPI"])
+
+_OPENAPI_KEY = getattr(settings, "OPENAPI_KEY", "vmall-openapi-secret-2026")
+
+
+def _verify_key(x_api_key: str = Header(None)):
+    if not x_api_key or x_api_key != _OPENAPI_KEY:
+        raise HTTPException(status_code=401, detail={"code": 40101, "msg": "无效的 API Key"})
+    return True
+
+
+@router.post("/generate-bind-token")
+def generate_bind_token(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                        db: Session = Depends(get_db)):
+    """SaaS 管理端：为指定 vmall 店铺生成绑定 token。"""
+    shop_id = body.get("shop_id")
+    shop = db.query(PlatformShop).filter(
+        PlatformShop.id == shop_id, PlatformShop.merchant_id == current.merchant_id
+    ).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
+    if shop.platform_type != "vmall":
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "仅 vmall 类型店铺需生成绑定 token"})
+    token = secrets.token_urlsafe(24)
+    shop.bind_token = token
+    shop.bind_status = "pending"
+    db.commit()
+    return ok({
+        "bind_token": token,
+        "saas_url": f"http://127.0.0.1:8010",
+        "shop_id": shop.id,
+        "shop_name": shop.shop_name,
+    }, msg="绑定 token 已生成")
+
+
+@router.post("/regenerate-bind-token")
+def regenerate_bind_token(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                          db: Session = Depends(get_db)):
+    """重新生成绑定 token。"""
+    shop_id = body.get("shop_id")
+    shop = db.query(PlatformShop).filter(
+        PlatformShop.id == shop_id, PlatformShop.merchant_id == current.merchant_id
+    ).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
+    if shop.bind_status == "active":
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "已绑定的店铺无法重新生成 token"})
+    token = secrets.token_urlsafe(24)
+    shop.bind_token = token
+    shop.bind_status = "pending"
+    db.commit()
+    return ok({"bind_token": token}, msg="绑定 token 已重新生成")
+
+
+@router.post("/confirm-bind")
+def confirm_bind(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+    """vMall 端调用：用 token 确认绑定。幂等：同一 token 重复调用返回已有数据。"""
+    token = body.get("bind_token", "")
+    shop = db.query(PlatformShop).filter(PlatformShop.bind_token == token).first()
+    if not shop:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "无效的绑定 token"})
+
+    if shop.bind_status == "active":
+        return ok({
+            "saas_merchant_id": shop.merchant_id,
+            "saas_shop_id": shop.id,
+            "shop_name": shop.shop_name,
+            "registered_at": datetime.now().isoformat(),
+        })
+
+    vmall_url = body.get("vmall_url", "")
+    shop.bind_status = "active"
+    shop.shop_url = vmall_url
+    db.commit()
+
+    return ok({
+        "saas_merchant_id": shop.merchant_id,
+        "saas_shop_id": shop.id,
+        "shop_name": shop.shop_name,
+        "registered_at": datetime.now().isoformat(),
+    })
+
+
+@router.post("/unbind-shop")
+def unbind_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+    """vMall 解绑通知 → 重置 SaaS 侧 bind_status。"""
+    shop_id = body.get("shop_id")
+    shop = db.query(PlatformShop).filter(PlatformShop.id == shop_id).first()
+    if shop and shop.bind_status == "active":
+        shop.bind_status = "idle"
+        shop.bind_token = None
+        db.commit()
+    return ok(msg="ok")
+
+
+@router.post("/register-shop")
+def register_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+    """vMall 商户绑定注册（兼容旧版调用）。创建 SaaS Merchant + PlatformShop，返回 saas_shop_id。"""
+    shop_name = body["shop_name"]
+    saas_url = body.get("saas_url", "")
+
+    merchant = Merchant(name=shop_name, contact=body.get("contact_phone", ""), status=1)
+    db.add(merchant)
+    db.flush()
+
+    shop = PlatformShop(
+        merchant_id=merchant.id,
+        platform_type="vmall",
+        shop_name=shop_name,
+        shop_url=saas_url,
+        sync_status="idle",
+        is_active=1,
+    )
+    db.add(shop)
+    db.commit()
+    db.refresh(shop)
+
+    return ok({
+        "saas_merchant_id": merchant.id,
+        "saas_shop_id": shop.id,
+        "shop_name": shop.shop_name,
+        "registered_at": datetime.now().isoformat(),
+    })

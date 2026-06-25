@@ -1,6 +1,6 @@
 <template>
   <div v-loading="loading">
-    <el-page-header @back="$router.push('/tickets')" :content="ticket?.ticket_no" style="margin-bottom:16px" />
+    <el-page-header @back="goBack" :content="ticket?.ticket_no" style="margin-bottom:16px" />
 
     <el-row :gutter="16">
       <el-col :span="16">
@@ -79,12 +79,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getTicket, getTicketComments, addTicketComment, updateTicketStatus, assignTicket, claimTicket,
          autoClassifyTicket, autoSummarizeTicket, ticketAISuggest, getSkillGroups } from '../api'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
+const router = useRouter()
 const ticket = ref(null); const loading = ref(false); const comments = ref([])
 const newComment = ref(''); const isInternal = ref(false)
 const nextStatus = ref(''); const resolveNotes = ref(''); const statusLoading = ref(false)
@@ -120,6 +121,11 @@ async function sendComment() {
 async function doStatus() {
   statusLoading.value = true
   try { await updateTicketStatus(route.params.id, { status: nextStatus.value, resolved_notes: resolveNotes.value || undefined }); ElMessage.success('状态已更新'); fetchAll() } finally { statusLoading.value = false }
+}
+
+function goBack() {
+  if (window.history.length > 2) router.back()
+  else router.push('/tickets')
 }
 
 async function doAssign() { await assignTicket(route.params.id, assignTo.value); ElMessage.success('已改派'); fetchAll() }

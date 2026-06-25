@@ -2,7 +2,6 @@
   <div style="max-width:600px;margin:0 auto;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
       <h2 style="margin:0">个人中心</h2>
-      <el-button text @click="$router.push('/home')">返回首页</el-button>
     </div>
 
     <!-- 个人信息卡片 -->
@@ -96,19 +95,8 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
-
-const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
-http.interceptors.request.use(c => {
-  const t = localStorage.getItem('vmall_token')
-  if (t) c.headers.Authorization = `Bearer ${t}`
-  return c
-})
-http.interceptors.response.use(
-  r => r.data,
-  err => { ElMessage.error('请求失败: ' + (err.response?.data?.detail?.msg || err.message)); return Promise.reject(err) }
-)
+import { getProfile, updateProfile, getWallet, getWalletTransactions } from '../api'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -140,16 +128,13 @@ function typeLabel(t) {
 async function fetchProfile() {
   loading.value = true
   try {
-    const resp = await http.get('/consumer/profile')
-    const d = resp.data || resp
-    Object.assign(profile, d)
+    const d = await getProfile()
+    Object.assign(profile, d.data || d)
     if (d.wallet) profile.wallet = d.wallet
     editForm.nickname = d.nickname || ''
     editForm.phone = d.phone || ''
-    console.log('[Profile] loaded, balance:', d.wallet?.balance)
   } catch (e) {
     console.error('[Profile] load failed:', e)
-    ElMessage.error('加载个人信息失败')
   } finally {
     loading.value = false
   }
@@ -158,9 +143,8 @@ async function fetchProfile() {
 async function fetchTx() {
   txLoading.value = true
   try {
-    const resp = await http.get('/consumer/wallet/transactions', { params: { page: 1, page_size: 50 } })
-    const d = resp.data || resp
-    transactions.value = d.items || []
+    const d = await getWalletTransactions({ page: 1, page_size: 50 })
+    transactions.value = d.data?.items || d.items || []
   } catch (e) {
     console.error('[Profile] tx load failed:', e)
     transactions.value = []
@@ -171,7 +155,7 @@ async function fetchTx() {
 
 async function doUpdate() {
   try {
-    await http.put('/consumer/profile', { nickname: editForm.nickname, phone: editForm.phone })
+    await updateProfile({ nickname: editForm.nickname, phone: editForm.phone })
     showEdit.value = false
     fetchProfile()
     ElMessage.success('已更新')

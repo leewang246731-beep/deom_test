@@ -33,10 +33,26 @@ from app.models.merchant import Merchant
 from app.models.merchant_user import MerchantUser
 from app.models.platform_shop import PlatformShop
 
-MERCHANT_NAME = "模拟旗舰商户"
-SHOPS = [
-    {"platform_type": "mock", "shop_name": "模拟数码专营店", "shop_url": "https://mock.local/shop/digital"},
-    {"platform_type": "mock", "shop_name": "模拟潮流女装店", "shop_url": "https://mock.local/shop/fashion"},
+# 多商户配置: (商户名称, vmall店铺名, bind_status, [mock店铺])
+MULTI_MERCHANTS = [
+    {
+        "name": "数码旗舰商户",
+        "contact": "400-111-0001",
+        "vmall": {"shop_name": "数码旗舰店", "bind_status": "active"},
+        "mocks": [{"platform_type": "mock", "shop_name": "模拟数码专营店", "shop_url": "https://mock.local/shop/digital"}],
+    },
+    {
+        "name": "时尚女装商户",
+        "contact": "400-222-0002",
+        "vmall": {"shop_name": "时尚女装馆", "bind_status": "active"},
+        "mocks": [{"platform_type": "mock", "shop_name": "模拟潮流女装店", "shop_url": "https://mock.local/shop/fashion"}],
+    },
+    {
+        "name": "潮流美妆商户",
+        "contact": "400-333-0003",
+        "vmall": {"shop_name": "潮流美妆坊", "bind_status": "idle"},
+        "mocks": [],
+    },
 ]
 USERS = [
     {"username": "admin", "display_name": "超级管理员", "role": "admin"},
@@ -45,17 +61,17 @@ USERS = [
 ]
 
 
-def get_or_create_merchant(db) -> Merchant:
-    m = db.query(Merchant).filter(Merchant.name == MERCHANT_NAME).first()
-    if not m:
-        m = db.query(Merchant).order_by(Merchant.id).first()
-    if not m:
-        m = Merchant(name=MERCHANT_NAME, contact="400-000-0000", status=1)
-        db.add(m)
-        db.flush()
-    else:
-        m.name = MERCHANT_NAME
-    return m
+def seed_multi_merchants(db) -> list:
+    """为每个预配置商户创建 Merchant 记录。返回 [(merchant_id, config), ...]"""
+    results = []
+    for cfg in MULTI_MERCHANTS:
+        m = db.query(Merchant).filter(Merchant.name == cfg["name"]).first()
+        if not m:
+            m = Merchant(name=cfg["name"], contact=cfg["contact"], status=1)
+            db.add(m)
+            db.flush()
+        results.append((m.id, cfg))
+    return results
 
 
 def reset_users(db, merchant_id: int):
@@ -264,116 +280,149 @@ async def seed():
     connector = MockPlatformConnector()
     db = SessionLocal()
     try:
-        merchant = get_or_create_merchant(db)
-        mid = merchant.id
-        clear_business_data(db, mid)   # 先清业务数据（含tickets FKs→merchant_users）
-        reset_users(db, mid)
-
-        total_products = total_convs = total_orders = 0
-
-        for shop_cfg in SHOPS:
-            shop = PlatformShop(
-                merchant_id=mid,
-                platform_type=shop_cfg["platform_type"],
-                shop_name=shop_cfg["shop_name"],
-                shop_url=shop_cfg["shop_url"],
-                sync_status="idle",
-                last_sync_at=datetime.now(),
-                is_active=1,
-            )
-            db.add(shop)
-            db.flush()
-
-            # —— 商品 ——
-            products = await connector.fetch_products(shop.id)
-            product_ids = []
-            for p in products:
-                obj = ExternalProduct(
-                    shop_id=shop.id,
-                    platform_product_id=p["platform_product_id"],
-                    title=p["title"],
-                    price=p["price"],
-                    stock=p["stock"],
-                    description=p["description"],
-                    images_json=p["images_json"],
-                    category_path=p["category_path"],
-                    status=p["status"],
-                    last_sync_at=p["last_sync_at"],
-                )
-                db.add(obj)
-                db.flush()
-                product_ids.append(obj.id)
-            total_products += len(products)
-
-            # —— 会话 ——
-            convs = await connector.get_conversations(shop.id)
-            for c in convs:
-                db.add(Conversation(
-                    shop_id=shop.id,
-                    platform_conversation_id=c["platform_conversation_id"],
-                    product_id=random.choice(product_ids) if product_ids else None,
-                    buyer_nick=c["buyer_nick"],
-                    messages_json=c["messages_json"],
-                    last_message_at=c["last_message_at"],
-                    handled_status=c["handled_status"],
-                    assigned_to=None,
-                ))
-            total_convs += len(convs)
-
-            # —— 订单 ——
-            since = datetime.now() - timedelta(days=7)
-            orders = await connector.fetch_orders(shop.id, since)
-            for o in orders:
-                db.add(ExternalOrder(
-                    shop_id=shop.id,
-                    platform_order_id=o["platform_order_id"],
-                    buyer_openid=o["buyer_openid"],
-                    buyer_nick=o["buyer_nick"],
-                    total_amount=o["total_amount"],
-                    discount_amount=o["discount_amount"],
-                    pay_amount=o["pay_amount"],
-                    status=o["status"],
-                    sku_details_json=o["sku_details_json"],
-                    receiver_name=o["receiver_name"],
-                    receiver_phone=o["receiver_phone"],
-                    receiver_address=o["receiver_address"],
-                    pay_time=o["pay_time"],
-                    ship_time=o["ship_time"],
-                    created_at=o["created_at"],
-                ))
-            total_orders += len(orders)
-
-        # —— 分类（从 category_path 自动解析）——
-        cat_count = build_categories(db, mid)
-
-        # —— 工单种子数据 ——
-        ticket_count = seed_tickets(db, mid, [u["username"] for u in USERS])
-
+        # 清理旧数据（先删子表再删商户）
+        existing = db.query(Merchant).all()
+        for em in existing:
+            clear_business_data(db, em.id)
+            db.query(MerchantUser).filter(MerchantUser.merchant_id == em.id).delete()
+        db.flush()
+        # 清理可能残留的跨商户 FK 数据
+        from app.models.service_mode import ServiceModeConfig, AutoReplyLog
+        from app.models.ai_suggestion_log import AISuggestionLog
+        from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
+        db.query(AutoReplyLog).delete()
+        db.query(ServiceModeConfig).delete()
+        db.query(AISuggestionLog).delete()
+        db.query(KbMessage).delete()
+        db.query(KbChunk).delete()
+        db.query(KbDocument).delete()
+        db.query(KbConversation).delete()
+        db.flush()
+        for em in existing:
+            db.query(Merchant).filter(Merchant.id == em.id).delete()
         db.commit()
-        print(f"商户: {merchant.name} (id={mid})")
-        print(f"店铺: {len(SHOPS)} | 商品: {total_products} | 会话: {total_convs} | 订单: {total_orders} | 分类: {cat_count} | 工单: {ticket_count}")
-        print("=" * 48)
-        print("种子数据生成成功！请使用 admin/123456 登录")
 
-        # —— 可选向量回填 ——
+        merchant_entries = seed_multi_merchants(db)
+
+        for mid, cfg in merchant_entries:
+            reset_users(db, mid)
+
+            total_products = total_convs = total_orders = 0
+            vmall_shop_id = None
+
+            # vmall 店铺
+            vmall = cfg["vmall"]
+            vmall_shop = PlatformShop(
+                merchant_id=mid,
+                platform_type="vmall",
+                shop_name=vmall["shop_name"],
+                shop_url="http://127.0.0.1:8020",
+                sync_status="idle",
+                is_active=1,
+                bind_status=vmall["bind_status"],
+            )
+            if vmall["bind_status"] == "idle":
+                import secrets
+                vmall_shop.bind_token = secrets.token_urlsafe(24)
+            db.add(vmall_shop)
+            db.flush()
+            vmall_shop_id = vmall_shop.id
+
+            # mock 店铺
+            for shop_cfg in cfg["mocks"]:
+                shop = PlatformShop(
+                    merchant_id=mid,
+                    platform_type=shop_cfg["platform_type"],
+                    shop_name=shop_cfg["shop_name"],
+                    shop_url=shop_cfg["shop_url"],
+                    sync_status="idle",
+                    last_sync_at=datetime.now(),
+                    is_active=1,
+                )
+                db.add(shop)
+                db.flush()
+
+                products = await connector.fetch_products(shop.id)
+                product_ids = []
+                for p in products:
+                    obj = ExternalProduct(
+                        shop_id=shop.id,
+                        platform_product_id=p["platform_product_id"],
+                        title=p["title"],
+                        price=p["price"],
+                        stock=p["stock"],
+                        description=p["description"],
+                        images_json=p["images_json"],
+                        category_path=p["category_path"],
+                        status=p["status"],
+                        last_sync_at=p["last_sync_at"],
+                    )
+                    db.add(obj)
+                    db.flush()
+                    product_ids.append(obj.id)
+                total_products += len(products)
+
+                convs = await connector.get_conversations(shop.id)
+                for c in convs:
+                    db.add(Conversation(
+                        shop_id=shop.id,
+                        platform_conversation_id=c["platform_conversation_id"],
+                        product_id=random.choice(product_ids) if product_ids else None,
+                        buyer_nick=c["buyer_nick"],
+                        messages_json=c["messages_json"],
+                        last_message_at=c["last_message_at"],
+                        handled_status=c["handled_status"],
+                        assigned_to=None,
+                    ))
+                total_convs += len(convs)
+
+                since = datetime.now() - timedelta(days=7)
+                orders = await connector.fetch_orders(shop.id, since)
+                for o in orders:
+                    db.add(ExternalOrder(
+                        shop_id=shop.id,
+                        platform_order_id=o["platform_order_id"],
+                        buyer_openid=o["buyer_openid"],
+                        buyer_nick=o["buyer_nick"],
+                        total_amount=o["total_amount"],
+                        discount_amount=o["discount_amount"],
+                        pay_amount=o["pay_amount"],
+                        status=o["status"],
+                        sku_details_json=o["sku_details_json"],
+                        receiver_name=o["receiver_name"],
+                        receiver_phone=o["receiver_phone"],
+                        receiver_address=o["receiver_address"],
+                        pay_time=o["pay_time"],
+                        ship_time=o["ship_time"],
+                        created_at=o["created_at"],
+                    ))
+                total_orders += len(orders)
+
+            cat_count = build_categories(db, mid)
+            ticket_count = seed_tickets(db, mid, [u["username"] for u in USERS])
+            db.commit()
+
+            print(f"商户: {cfg['name']} (id={mid}, vmall_shop={vmall_shop_id})")
+            print(f"  店铺: vmall({vmall['bind_status']}) + mock×{len(cfg['mocks'])} | 商品: {total_products} | 会话: {total_convs} | 订单: {total_orders} | 分类: {cat_count} | 工单: {ticket_count}")
+
+        print("=" * 48)
+        print("多商户种子数据生成成功！")
+        print("  商户1「数码旗舰商户」已绑定 vmall merchant01")
+        print("  商户2「时尚女装商户」已绑定 vmall merchant02")
+        print("  商户3「潮流美妆商户」待绑定 (idle)")
+        print("  登录: admin/123456 (每个商户独立登录)")
+
         if "--backfill" in sys.argv or "--full" in sys.argv:
             full = "--full" in sys.argv
-            print("\n开始向量回填...")
-            from app.services.ai_suggest import backfill_all
-            result = backfill_all(db, mid, full_rebuild=full)
-            print(f"回填完成: 商品 {result['products']} + 话术 {result['replies']} = {result['total_vectors']} 向量")
-
-            # 协同过滤重建
-            print("开始协同过滤重建...")
-            from app.services.recommendation import rebuild_co_purchase, rebuild_buyer_profiles
-            co = rebuild_co_purchase(db, mid)
-            bp = rebuild_buyer_profiles(db, mid)
-            print(f"协同过滤完成: 共购对 {co} | 买家画像 {bp}")
-
-            print("\n[OK] 全量演示数据就绪! 访问 http://localhost:8080 登录 admin/123456")
-        else:
-            print("\n提示: 用 python seed.py --backfill 可自动完成向量回填")
-            print("      用 python seed.py --backfill --full 可全量重建 ChromaDB")
+            print("\n开始向量回填（所有商户）...")
+            for mid, cfg in merchant_entries:
+                try:
+                    from app.services.ai_suggest import backfill_all
+                    result = backfill_all(db, mid, full_rebuild=full)
+                    print(f"  [{cfg['name']}] 回填完成: {result['total_vectors']} 向量")
+                except Exception as e:
+                    print(f"  [{cfg['name']}] 回填失败: {e}")
+            print("[OK] 向量回填完成")
 
     except Exception:
         db.rollback()

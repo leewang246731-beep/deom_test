@@ -4,8 +4,12 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port 8080",
+    "dev": "vite --port 8092",
+    "dev:admin": "vite --port 8092",
+    "dev:service": "vite --config vite.config.service.js",
     "build": "vite build",
+    "build:admin": "vite build --outDir dist-admin",
+    "build:service": "vite build --config vite.config.service.js",
     "preview": "vite preview"
   },
   "dependencies": {

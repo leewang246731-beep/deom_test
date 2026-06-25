@@ -28,5 +28,7 @@ class PlatformShop(Base):
     token_expire_at = Column(DateTime, nullable=True)
     sync_status = Column(String(20), default="idle", comment="idle/syncing/error")
     last_sync_at = Column(DateTime, nullable=True)
+    bind_token = Column(String(64), nullable=True, unique=True, comment="vMall 绑定凭据")
+    bind_status = Column(String(20), default="idle", comment="idle/pending/active")
     is_active = Column(SmallInteger, default=1)
     created_at = Column(DateTime, server_default=func.now())

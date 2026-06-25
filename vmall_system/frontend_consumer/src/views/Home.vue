@@ -1,11 +1,8 @@
 <template>
   <div style="max-width:1200px;margin:0 auto;padding:16px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="margin:0">vMall 商城</h2>
-      <div>
-        <el-button text @click="$router.push('/profile')">👤 个人中心</el-button>
-        <el-button text @click="$router.push('/orders')">我的订单</el-button>
-        <el-button text type="danger" @click="logout">退出</el-button></div></div>
+      <h2 style="margin:0">商品列表</h2>
+    </div>
     <el-row :gutter="12" style="margin-bottom:12px">
       <el-col :span="6"><el-select v-model="f.category" placeholder="分类" clearable style="width:100%"><el-option v-for="c in cats" :key="c" :label="c" :value="c"/></el-select></el-col>
       <el-col :span="6"><el-select v-model="f.sort" placeholder="排序" style="width:100%"><el-option label="默认" value="default"/><el-option label="价格升序" value="price_asc"/><el-option label="价格降序" value="price_desc"/><el-option label="销量优先" value="sales"/></el-select></el-col>

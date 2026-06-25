@@ -1,5 +1,6 @@
 <template>
-  <div style="display:flex;height:calc(100vh - 140px);gap:12px">
+  <div>
+    <div style="display:flex;height:calc(100vh - 120px);gap:12px">
     <!-- 左栏：会话列表 -->
     <div style="width:260px;flex-shrink:0;display:flex;flex-direction:column">
       <el-card shadow="never" style="flex:1;overflow:auto" body-style="padding:0">
@@ -99,11 +100,12 @@
       </el-card>
     </div>
   </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket } from '../api'
+import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage } from '../api'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -120,6 +122,7 @@ const recLoading = ref(false)
 const recommendations = ref([])
 const logistics = ref(null)
 let ws = null
+let pollTimer = null
 
 async function fetchList() {
   try {
@@ -163,14 +166,16 @@ function useSuggestion(text) { replyText.value = text }
 
 async function sendReply() {
   if (!replyText.value.trim() || !activeConv.value) return
-  // check if this matches any suggestion
   const matched = suggestions.value.find(s => s.content === replyText.value)
-  const now = new Date().toLocaleString('zh-CN', { hour12: false })
-  activeConv.value.messages_json.push({ role: 'service', content: replyText.value, time: now })
   const sent = replyText.value
   replyText.value = ''
-  ElMessage.success('已发送（Mock 模式）')
-  if (matched) trackAdoption(sent, 1)
+  try {
+    const res = await sendConversationMessage(activeConv.value.id, { content: sent })
+    activeConv.value.messages_json = res.data?.messages_json || []
+    ElMessage.success('已发送')
+    if (matched) trackAdoption(sent, 1)
+    fetchList()
+  } catch { /* error shown by interceptor */ }
 }
 
 async function fetchAISuggest() {
@@ -199,14 +204,14 @@ async function fetchRecommendations() {
   } catch { /* ok */ } finally { recLoading.value = false }
 }
 
-function sendProductCard(r) {
+async function sendProductCard(r) {
   if (!activeConv.value) return
-  const now = new Date().toLocaleString('zh-CN', { hour12: false })
-  activeConv.value.messages_json.push({
-    role: 'service', content: `[商品推荐] ${r.product.title}  ¥${r.product.price}\n${r.why}`,
-    time: now, is_product_card: true, product: r.product,
-  })
-  ElMessage.success('已发送商品卡片')
+  try {
+    const cardText = `[商品推荐] ${r.product.title}  ¥${r.product.price}\n${r.why}`
+    const res = await sendConversationMessage(activeConv.value.id, { content: cardText })
+    activeConv.value.messages_json = res.data?.messages_json || []
+    ElMessage.success('已发送商品卡片')
+  } catch { /* error shown by interceptor */ }
 }
 
 async function convertToTicket() {
@@ -238,6 +243,8 @@ function setupWS() {
   ws.onclose = () => { setTimeout(setupWS, 5000) }
 }
 
-onMounted(() => { fetchList(); setupWS() })
-onUnmounted(() => { if (ws) ws.close() })
+onMounted(async () => {
+  fetchList(); setupWS(); pollTimer = setInterval(fetchList, 3000)
+})
+onUnmounted(() => { if (ws) ws.close(); if (pollTimer) clearInterval(pollTimer) })
 </script>

@@ -21,18 +21,15 @@ from app.models.ticket import Ticket
 from app.models.ticket_assignment import TicketAssignment
 from app.models.ticket_category import TicketCategory
 from app.models.ticket_comment import TicketComment
+from app.models.service_mode import ServiceModeConfig, AutoReplyLog
+from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 
 __all__ = [
-    "Merchant",
-    "MerchantUser",
-    "PlatformShop",
-    "ExternalProduct",
-    "ExternalOrder",
-    "Conversation",
-    "Category",
-    "AISuggestionLog",
-    "AIStyleConfig",
-    "BuyerProfile",
-    "ProductCoPurchase",
-    "ProductRecommendationRule",
+    "Merchant", "MerchantUser", "PlatformShop", "ExternalProduct", "ExternalOrder",
+    "Conversation", "Category", "AISuggestionLog", "AIStyleConfig",
+    "BuyerProfile", "ProductCoPurchase", "ProductRecommendationRule",
+    "SkillGroup", "SkillMember", "SLAPolicy",
+    "Ticket", "TicketAssignment", "TicketCategory", "TicketComment",
+    "ServiceModeConfig", "AutoReplyLog",
+    "KbDocument", "KbChunk", "KbConversation", "KbMessage",
 ]

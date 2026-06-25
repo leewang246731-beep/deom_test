@@ -41,7 +41,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import { getMetrics, getOrderTrend, getServiceStats, getHotProducts, getShops, getConversations, getTicketStats, getTicketTrend } from '../api'
 
@@ -52,6 +52,12 @@ const hotProducts = ref([])
 const serviceStats = ref({ per_service: [], pending: 0, replied: 0, ai_adoption_rate: 0 })
 let chart = null
 let tChart = null
+
+function disposeCharts() {
+  try { if (chart) { chart.dispose(); chart = null } } catch { /* */ }
+  try { if (tChart) { tChart.dispose(); tChart = null } } catch { /* */ }
+}
+onUnmounted(disposeCharts)
 
 const cards = reactive([
   { title: '总订单量', value: 0, icon: 'Document', color: '#409eff' },
@@ -90,14 +96,16 @@ onMounted(async () => {
     serviceStats.value = stats.data || {}
   } catch { /* */ }
 
-  await nextTick()
-  if (chartDom.value) { chart = echarts.init(chartDom.value); fetchTrend() }
-  if (ticketChartDom.value) {
-    tChart = echarts.init(ticketChartDom.value)
-    try {
-      const pts = (await getTicketTrend('week')).data?.points || []
-      tChart.setOption({ tooltip:{trigger:'axis'}, xAxis:{type:'category',data:pts.map(p=>p.date?.slice(5)||p.date)}, yAxis:{type:'value'}, series:[{name:'工单数',type:'bar',data:pts.map(p=>p.count)}] })
-    } catch { /* */ }
-  }
+  try {
+    await nextTick()
+    if (chartDom.value) { chart = echarts.init(chartDom.value); fetchTrend() }
+    if (ticketChartDom.value) {
+      tChart = echarts.init(ticketChartDom.value)
+      try {
+        const pts = (await getTicketTrend('week')).data?.points || []
+        tChart.setOption({ tooltip:{trigger:'axis'}, xAxis:{type:'category',data:pts.map(p=>p.date?.slice(5)||p.date)}, yAxis:{type:'value'}, series:[{name:'工单数',type:'bar',data:pts.map(p=>p.count)}] })
+      } catch { /* */ }
+    }
+  } catch { /* */ }
 })
 </script>

@@ -24,7 +24,7 @@ def list_convs(status: str = Query(None), page_no: int = Query(1, alias="page"),
     q = db.query(VmConversation)
     if status: q = q.filter(VmConversation.status == status)
     total = q.count()
-    items = q.order_by(VmConversation.last_message_at.desc().nullslast()).offset(
+    items = q.order_by(VmConversation.last_message_at.desc()).offset(
         (page_no - 1) * page_size).limit(page_size).all()
     return page([{"id": c.id, "buyer_id": c.buyer_id, "status": c.status,
                    "order_id": c.order_id, "product_id": c.product_id,

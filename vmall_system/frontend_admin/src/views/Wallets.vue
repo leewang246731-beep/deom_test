@@ -57,11 +57,8 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import axios from 'axios'
 import { ElMessage } from 'element-plus'
-const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
-http.interceptors.request.use(c => { const t = localStorage.getItem('vmall_admin_token'); if(t) c.headers.Authorization = `Bearer ${t}`; return c })
-http.interceptors.response.use(r => r.data)
+import { getWallets, rechargeWallet, getWalletTx } from '../api'
 
 const wallets = ref([]); const loading = ref(false); const total = ref(0); const page = ref(1); const keyword = ref('')
 const showRecharge = ref(false); const showTx = ref(false)
@@ -69,18 +66,41 @@ const rechargeTarget = ref(null); const recharging = ref(false)
 const rechargeForm = reactive({ amount: 100, remark: '' })
 const transactions = ref([])
 
-async function fetch() { loading.value = true; try { const p = { page: page.value, page_size: 20 }; if (keyword.value) p.keyword = keyword.value; const r = await http.get('/admin/wallets', { params: p }); wallets.value = r.data?.items || []; total.value = r.data?.total || 0 } finally { loading.value = false } }
+async function fetch() {
+  loading.value = true
+  try {
+    const p = { page: page.value, page_size: 20 }
+    if (keyword.value) p.keyword = keyword.value
+    const r = await getWallets(p)
+    wallets.value = r.data?.items || []
+    total.value = r.data?.total || 0
+  } finally { loading.value = false }
+}
 
-function openRecharge(row) { rechargeTarget.value = row; rechargeForm.amount = 100; rechargeForm.remark = ''; showRecharge.value = true }
+function openRecharge(row) {
+  rechargeTarget.value = row
+  rechargeForm.amount = 100
+  rechargeForm.remark = ''
+  showRecharge.value = true
+}
+
 async function doRecharge() {
   if (rechargeForm.amount <= 0) return ElMessage.warning('金额必须大于0')
   recharging.value = true
-  try { await axios.post(`/api/v1/admin/wallets/${rechargeTarget.value.buyer_id}/recharge`, rechargeForm, { headers: { Authorization: `Bearer ${localStorage.getItem('vmall_admin_token')}` } }); showRecharge.value = false; ElMessage.success(`充值 ¥${rechargeForm.amount} 成功`); fetch() } finally { recharging.value = false }
+  try {
+    await rechargeWallet(rechargeTarget.value.buyer_id, { amount: rechargeForm.amount, remark: rechargeForm.remark })
+    showRecharge.value = false
+    ElMessage.success(`充值 ¥${rechargeForm.amount} 成功`)
+    fetch()
+  } finally { recharging.value = false }
 }
 
 async function openTx(row) {
   showTx.value = true
-  try { const r = await http.get(`/admin/wallets/${row.buyer_id}/transactions`, { params: { page: 1, page_size: 50 } }); transactions.value = r.data?.items || [] } catch { /* */ }
+  try {
+    const r = await getWalletTx(row.buyer_id, { page: 1, page_size: 50 })
+    transactions.value = r.data?.items || []
+  } catch { /* */ }
 }
 
 onMounted(fetch)

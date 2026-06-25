@@ -2,11 +2,17 @@
 import httpx
 from sqlalchemy.orm import Session
 
+from app.models.vm_merchant import VmMerchant
 from app.models.vm_platform_setting import VmPlatformSetting
 from app.models.vm_webhook_log import VmWebhookLog
 
 
-def _get_webhook_url(db: Session) -> str:
+def _get_webhook_url(db: Session, merchant_id: int = None) -> str:
+    """按商户获取 webhook URL，未绑定时回退全局。"""
+    if merchant_id:
+        m = db.query(VmMerchant).filter(VmMerchant.id == merchant_id).first()
+        if m and m.saas_bound and m.saas_url:
+            return f"{m.saas_url}/api/v1/webhooks/vmall"
     s = db.query(VmPlatformSetting).first()
     return (s.saas_webhook_url or "") if s else ""
 
@@ -15,7 +21,7 @@ async def dispatch(db_factory, event_type: str, payload: dict):
     """异步推送 Webhook。db_factory 是 SessionLocal。"""
     db = db_factory()
     try:
-        url = _get_webhook_url(db)
+        url = _get_webhook_url(db, payload.get("_merchant_id"))
         if not url:
             _log(db, event_type, payload, url, "skipped", None, "无 Webhook 地址")
             return

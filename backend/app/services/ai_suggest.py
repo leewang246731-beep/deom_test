@@ -102,7 +102,22 @@ async def get_ai_suggestions(
     product_id: int | None,
     db: Session,
 ) -> dict:
-    """话术建议 Pipeline：向量检索 → RRF → LLM 生成 3 条回复（含物流感知）。"""
+    """话术建议 Pipeline：向量检索 → RRF → LLM 生成 3 条回复（含物流感知+角色感知）。"""
+    # ---- 角色 Prompt 注入 ----
+    from app.services.mode_engine import get_role_prompt
+    role_prompt = ""
+    try:
+        from app.models.skill_group import SkillMember
+        from app.models.conversation import Conversation
+        conv = db.query(Conversation).filter(Conversation.shop_id == shop_id).order_by(
+            Conversation.last_message_at.desc()).first()
+        if conv and conv.assigned_to:
+            sm = db.query(SkillMember).filter(SkillMember.user_id == conv.assigned_to).first()
+            if sm:
+                role_prompt = get_role_prompt(sm.skill_tags or "")
+    except Exception:
+        pass
+
     # ---- 物流状态注入 (tuozhan.md §2.6) ----
     logistics_info = await _get_logistics_context(merchant_id, shop_id, db)
 
@@ -134,8 +149,10 @@ async def get_ai_suggestions(
 【异常信息】：{logistics_info.get('exception_detail', '无')}
 """
 
+    role_block = f"\n【角色定位】：{role_prompt}\n" if role_prompt else ""
+
     prompt = f"""你是电商客服助手。基于以下信息，为买家问题生成3条回复建议。
-{logistics_block}
+{role_block}{logistics_block}
 商品信息：
 {product_info}
 
@@ -151,16 +168,19 @@ async def get_ai_suggestions(
     try:
         response = chat([{"role": "user", "content": prompt}])
         parts = [p.strip() for p in response.split("---") if p.strip()]
+        # 计算置信度
+        from app.services.mode_engine import calc_confidence
+        conf = calc_confidence(fused, response, buyer_question)
         suggestions = [
-            {"content": p, "source": "llm", "confidence": 0.85}
+            {"content": p, "source": "llm", "confidence": conf}
             for p in (parts if len(parts) >= 3 else [response])
         ]
         if len(suggestions) < 3:
             suggestions += [
-                {"content": r["meta"].get("reply", r["content"]), "source": "retrieval", "confidence": 0.6}
+                {"content": r["meta"].get("reply", r["content"]), "source": "retrieval", "confidence": round(conf * 0.7, 2)}
                 for r in fused[:3 - len(suggestions)]
             ]
-        result = {"suggestions": suggestions[:3], "query_ms": 0, "logistics": logistics_info}
+        result = {"suggestions": suggestions[:3], "confidence": conf, "query_ms": 0, "logistics": logistics_info}
     except Exception as e:
         result = {"suggestions": [
             {"content": r["meta"].get("reply", r["content"]), "source": "retrieval", "confidence": 0.5}

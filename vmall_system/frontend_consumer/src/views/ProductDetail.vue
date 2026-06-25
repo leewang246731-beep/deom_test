@@ -1,6 +1,5 @@
 <template>
   <div style="max-width:800px;margin:0 auto;padding:16px" v-loading="loading">
-    <el-button text @click="$router.back()">← 返回</el-button>
     <el-row :gutter="24" style="margin-top:16px">
       <el-col :span="12"><el-image :src="p.main_image" fit="cover" style="width:100%;height:360px;border-radius:12px"/></el-col>
       <el-col :span="12">

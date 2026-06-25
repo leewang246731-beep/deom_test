@@ -73,6 +73,7 @@ def seed():
     Base.metadata.create_all(bind=engine, checkfirst=True)
     db = SessionLocal()
     try:
+        from app.models.vm_merchant import VmMerchant
         from app.models.vm_logistics import VmLogistics, VmLogisticsTrack, VmLogisticsScriptTemplate
         from app.models.vm_message import VmMessage
         from app.models.vm_conversation import VmConversation
@@ -98,9 +99,29 @@ def seed():
         db.query(VmOrder).delete()
         db.query(VmProduct).delete()
         db.query(VmBuyer).delete()
+        db.query(VmMerchant).delete()
         db.query(VmPlatformAdmin).delete()
         db.query(VmPlatformSetting).delete()
         db.commit()
+
+        # ---- 商户 (预绑定 merchant01/02 到 SaaS) ----
+        merchants = []
+        for i, (uname, shop, saas_bound) in enumerate([
+            ("merchant01", "数码旗舰店", True),
+            ("merchant02", "时尚女装馆", True),
+            ("merchant03", "潮流美妆坊", False),
+        ]):
+            m = VmMerchant(username=uname, password_hash=hash_password("123456"),
+                           shop_name=shop, contact_name=f"店主-{shop}",
+                           contact_phone=f"1380000000{1+i}", contact_email=f"{uname}@shop.com")
+            if saas_bound:
+                m.saas_bound = True
+                m.saas_url = "http://127.0.0.1:8010"
+                # saas_shop_id 由 SaaS seed 的输出决定（商户1→shop_id_1, 商户2→shop_id_2）
+                # 这里暂设 0，后续可通过绑定时修正，或在 SaaS seed 后更新
+                m.saas_bind_time = datetime.now()
+            db.add(m); db.flush()
+            merchants.append(m.id)
 
         # ---- 平台配置 + 管理员 ----
         db.add(VmPlatformAdmin(username="admin_vmall", password_hash=hash_password("123456"),
@@ -120,29 +141,31 @@ def seed():
                                     amount=500.00, balance_before=0, balance_after=500.00,
                                     remark="新用户注册赠送 500 元", order_no=None, operator_id=None))
 
-        # ---- 50 商品 ----
+        # ---- 50 商品(分配给3个商户) ----
         product_ids = []
-        for title, cat, pmin, pmax, desc, skus in PRODUCTS:
+        for idx, (title, cat, pmin, pmax, desc, skus) in enumerate(PRODUCTS):
             for sku in skus:
                 sku["sku_code"] = f"SKU-{title[:6]}-{sku['spec'][:4]}-{random.randint(100,999)}"
-            p = VmProduct(title=title, main_image=f"https://picsum.photos/seed/{len(product_ids)}/400/400",
+            mid = merchants[idx % 3]
+            p = VmProduct(merchant_id=mid, title=title,
+                          main_image=f"https://picsum.photos/seed/{len(product_ids)}/400/400",
                           price_min=pmin, price_max=pmax, category_path=cat, description=desc,
                           skus_json=skus, total_stock=sum(s["stock"] for s in skus),
                           total_sales=random.randint(0, 500))
             db.add(p); db.flush()
-            product_ids.append(p.id)
+            product_ids.append((p.id, mid))
 
         # ---- 55 订单: 5待付 + 5待发 + 45已发(覆盖物流各状态) ----
         order_ids = []
         # 前10个: 待付+待发
         for i in range(10):
             st = "pending_payment" if i < 5 else "paid"
-            pid = random.choice(product_ids)
+            pid, mid = random.choice(product_ids)
             p = db.query(VmProduct).get(pid)
             sku = random.choice(p.skus_json or [{"price": p.price_min, "stock": 1, "sku_code": "SKU-DEF", "spec": "默认"}])
             qty = random.randint(1, 2); amt = float(sku["price"]) * qty
             o = VmOrder(order_no=f"VM-{datetime.now().strftime('%y%m%d%H%M%S')}-{i:05d}",
-                        buyer_id=buyer.id, total_amount=amt, pay_amount=amt, status=st,
+                        merchant_id=mid, buyer_id=buyer.id, total_amount=amt, pay_amount=amt, status=st,
                         receiver_name="小明", receiver_phone="13800138000",
                         receiver_address="江苏省南京市玄武区虚拟路1号",
                         pay_time=datetime.now() - timedelta(hours=random.randint(1, 48)) if st != "pending_payment" else None,
@@ -150,13 +173,13 @@ def seed():
             db.add(o); db.flush()
             db.add(VmOrderItem(order_id=o.id, product_id=pid, sku_code=sku["sku_code"], sku_spec=sku.get("spec", ""),
                                 unit_price=float(sku["price"]), quantity=qty))
-            order_ids.append(o.id)
+            order_ids.append((o.id, mid))
 
         # 后45个: shipped/received/completed, 预分配物流状态
         log_plan = (["PICKED"] * 8 + ["IN_TRANSIT"] * 12 + ["OUT_FOR_DELIVERY"] * 10
                     + ["DELIVERED"] * 10 + ["FAILED"] * 3 + ["STUCK"] * 2)
         for i, log_status in enumerate(log_plan):
-            pid = random.choice(product_ids)
+            pid, mid = random.choice(product_ids)
             p = db.query(VmProduct).get(pid)
             sku = random.choice(p.skus_json or [{"price": p.price_min, "stock": 1, "sku_code": "SKU-DEF", "spec": "默认"}])
             qty = random.randint(1, 2); amt = float(sku["price"]) * qty
@@ -164,7 +187,7 @@ def seed():
             pay_t = datetime.now() - timedelta(hours=random.randint(24, 96))
             ship_t = pay_t + timedelta(hours=random.randint(2, 12))
             o = VmOrder(order_no=f"VM-{datetime.now().strftime('%y%m%d%H%M%S')}-{i+10:05d}",
-                        buyer_id=buyer.id, total_amount=amt, pay_amount=amt, status=order_stat,
+                        merchant_id=mid, buyer_id=buyer.id, total_amount=amt, pay_amount=amt, status=order_stat,
                         receiver_name="小明", receiver_phone="13800138000",
                         receiver_address="江苏省南京市玄武区虚拟路1号",
                         pay_time=pay_t, ship_time=ship_t,
@@ -172,7 +195,7 @@ def seed():
             db.add(o); db.flush()
             db.add(VmOrderItem(order_id=o.id, product_id=pid, sku_code=sku["sku_code"], sku_spec=sku.get("spec", ""),
                                 unit_price=float(sku["price"]), quantity=qty))
-            order_ids.append(o.id)
+            order_ids.append((o.id, mid))
 
             # 物流
             co = random.choice(["顺丰速运", "中通快递", "圆通速递"])
@@ -234,8 +257,10 @@ def seed():
 
         # ---- 10 条会话 ----
         for i in range(10):
-            c = VmConversation(buyer_id=buyer.id, order_id=random.choice(order_ids) if i % 3 == 0 else None,
-                               product_id=random.choice(product_ids), status="open" if i < 8 else "closed",
+            oid, mid = random.choice(order_ids)
+            pid, _ = random.choice(product_ids)
+            c = VmConversation(merchant_id=mid, buyer_id=buyer.id, order_id=oid if i % 3 == 0 else None,
+                               product_id=pid, status="open" if i < 8 else "closed",
                                buyer_ip_region=random.choice(["江苏·南京", "浙江·杭州", "北京", "广东·深圳"]),
                                buyer_last_online=datetime.now() - timedelta(minutes=random.randint(1, 120)),
                                last_message_at=datetime.now() - timedelta(minutes=random.randint(1, 60)))
@@ -251,6 +276,7 @@ def seed():
         sc = db.query(VmLogisticsTrack).count()
         print(f"vMall 种子数据生成成功!")
         print(f"  管理员: admin_vmall / 123456  |  买家: buyer_test / 123456")
+        print(f"  商户: merchant01~03 / 123456")
         print(f"  商品: {len(PRODUCTS)} | 订单: {len(order_ids)} | 物流: {lc}单/{sc}轨迹 | 会话: 10")
     except Exception:
         db.rollback()

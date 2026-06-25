@@ -71,7 +71,7 @@ async function doSearch() {
   try {
     const res = await searchProducts(searchQ.value)
     searchResults.value = (res.data?.results || []).map(r => ({ ...r, price: r.price || 0, stock: r.stock || 0, embedding_status: r.embedding_status || 'pending', status: r.status || 1 }))
-  } finally { searching.value = false }
+  } catch { /* */ } finally { searching.value = false }
 }
 
 function resetFilters() {

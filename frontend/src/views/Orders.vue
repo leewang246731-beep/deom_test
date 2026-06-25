@@ -79,17 +79,17 @@ async function fetch() {
     const res = await getOrders(params)
     orders.value = res.data?.items || []
     total.value = res.data?.total || 0
-  } finally { loading.value = false }
+  } catch { /* */ } finally { loading.value = false }
 }
 
 function showDetail(row) { detail.value = row; detailVisible.value = true }
-async function handleRefund(id) { await refundOrder(id); ElMessage.success('售后完成'); fetch() }
+async function handleRefund(id) { try { await refundOrder(id); ElMessage.success('售后完成'); fetch() } catch { /* */ } }
 async function handleRemind() {
   reminding.value = true
   try {
     const res = await remindPayment(1) // shop 1 for demo
     ElMessage.success(`已生成 ${res.data?.count || 0} 条催单话术`)
-  } finally { reminding.value = false }
+  } catch { /* */ } finally { reminding.value = false }
 }
 
 onMounted(async () => {

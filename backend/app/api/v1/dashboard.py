@@ -14,6 +14,7 @@ from app.models.external_order import ExternalOrder
 from app.models.merchant_user import MerchantUser
 from app.models.platform_shop import PlatformShop
 from app.models.ticket import Ticket
+from app.models.service_mode import AutoReplyLog
 
 router = APIRouter(prefix="/dashboard", tags=["数据看板"])
 

@@ -7,6 +7,7 @@ class VmProduct(Base):
     __tablename__ = "vm_products"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
+    merchant_id = Column(Integer, nullable=False, default=1, comment="商户ID")
     title = Column(String(300), nullable=False)
     main_image = Column(String(500), nullable=True)
     images_json = Column(JSON, nullable=True, comment='["url1","url2"]')

@@ -4,6 +4,7 @@
 """
 import asyncio
 import json
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -31,6 +32,8 @@ def _conv_brief(c: Conversation) -> dict:
         "id": c.id, "shop_id": c.shop_id, "buyer_nick": c.buyer_nick,
         "product_id": c.product_id, "handled_status": c.handled_status,
         "assigned_to": c.assigned_to, "preview": preview,
+        "current_mode": c.current_mode,
+        "auto_reply_count": c.auto_reply_count or 0,
         "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
     }
 
@@ -87,6 +90,52 @@ def assign_conversation(conv_id: int, current: CurrentUser = Depends(get_current
     return ok({"id": c.id, "assigned_to": c.assigned_to})
 
 
+@router.post("/conversations/{conv_id}/messages")
+def send_conversation_message(conv_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    """客服发送消息 → 追加到 SaaS Conversation + 同步回 vMall（双向桥接：去程）"""
+    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    c = db.query(Conversation).filter(
+        Conversation.id == conv_id,
+        Conversation.shop_id.in_(shop_ids) if shop_ids else False,
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    content = body.get("content", "")
+    now = datetime.now()
+    msgs = list(c.messages_json or [])
+    msgs.append({"role": "service", "content": content, "time": now.strftime("%Y-%m-%d %H:%M:%S")})
+    c.messages_json = msgs
+    c.last_message_at = now
+    c.handled_status = "replied"
+    c.last_human_at = now
+    db.commit()
+
+    vmall_conv_id = c.platform_conversation_id or ""
+    if vmall_conv_id.startswith("vmall_"):
+        vmall_conv_id = vmall_conv_id[len("vmall_"):]
+    if vmall_conv_id and vmall_conv_id.isdigit():
+        vmall_url = c.shop and hasattr(c.shop, 'shop_url') and c.shop.shop_url or None
+        if not vmall_url:
+            try:
+                shop = db.query(PlatformShop).filter(PlatformShop.id == c.shop_id).first()
+                vmall_url = shop.shop_url if shop else None
+            except Exception:
+                vmall_url = None
+        if not vmall_url:
+            vmall_url = "http://127.0.0.1:8020"
+        target = f"{vmall_url}/api/v1/consumer/conversations/{vmall_conv_id}/messages/internal"
+        try:
+            import requests as _r
+            _r.post(
+                target,
+                json={"api_key": "vmall-internal-demo-key", "content": content, "msg_type": "text"},
+                timeout=5,
+            )
+        except Exception:
+            pass
+    return ok({"id": c.id, "messages_json": [{"role": m["role"], "content": m["content"], "time": m.get("time", "")} for m in msgs]})
+
+
 @router.post("/conversations/{conv_id}/close")
 def close_conversation(conv_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
@@ -131,6 +180,23 @@ async def ws_service(websocket: WebSocket, token: str = Query(...)):
                     "conversation_id": msg.get("conversation_id"),
                     "suggestions": suggestions,
                 })
+            elif msg.get("type") == "set_mode":
+                from app.services.mode_engine import switch_mode
+                db2 = SessionLocal()
+                conv = db2.query(Conversation).get(msg.get("conversation_id"))
+                if conv:
+                    switch_mode(db2, conv, msg.get("mode", "copilot"))
+                    await websocket.send_json({"type": "mode_changed", "conversation_id": conv.id, "mode": conv.current_mode})
+                db2.close()
+            elif msg.get("type") == "takeover":
+                from app.services.mode_engine import switch_mode, clear_pending_timeout
+                db2 = SessionLocal()
+                conv = db2.query(Conversation).get(msg.get("conversation_id"))
+                if conv:
+                    switch_mode(db2, conv, "copilot", "WS接管")
+                    clear_pending_timeout(db2, conv)
+                    await websocket.send_json({"type": "mode_changed", "conversation_id": conv.id, "mode": "copilot", "reason": "takeover"})
+                db2.close()
             elif msg.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
             else:

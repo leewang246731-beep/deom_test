@@ -8,6 +8,7 @@ from app.models.vm_conversation import VmConversation
 from app.models.vm_message import VmMessage
 from app.models.vm_platform_setting import VmPlatformSetting, VmPlatformAdmin
 from app.models.vm_webhook_log import VmWebhookLog
+from app.models.vm_merchant import VmMerchant
 from app.models.vm_wallet import VmWallet, VmWalletTransaction
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "VmAfterSale", "VmLogistics", "VmLogisticsTrack", "VmLogisticsScriptTemplate",
     "VmConversation", "VmMessage",
     "VmPlatformSetting", "VmPlatformAdmin", "VmWebhookLog",
+    "VmMerchant",
     "VmWallet", "VmWalletTransaction",
 ]

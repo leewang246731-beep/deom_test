@@ -50,10 +50,15 @@ def _upsert_order(db: Session, data: dict, status: str):
     order_no = data.get("order_no") or str(data.get("order_id", data.get("id", "")))
     if not order_no:
         return
-    # 找到关联店铺（简化：取第一个活跃的 vmall 类型店铺）
-    shop = db.query(PlatformShop).filter(
-        PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
-    ).first()
+    shop_id = data.get("saas_shop_id")
+    if not shop_id:
+        shop = db.query(PlatformShop).filter(
+            PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
+        ).first()
+    else:
+        shop = db.query(PlatformShop).filter(
+            PlatformShop.id == shop_id, PlatformShop.is_active == 1
+        ).first()
     if not shop:
         return
 
@@ -89,9 +94,15 @@ def _handle_logistics(db: Session, data: dict):
     order_no = data.get("order_no", "")
     if not order_no:
         return
-    shop = db.query(PlatformShop).filter(
-        PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
-    ).first()
+    shop_id = data.get("saas_shop_id")
+    if not shop_id:
+        shop = db.query(PlatformShop).filter(
+            PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
+        ).first()
+    else:
+        shop = db.query(PlatformShop).filter(
+            PlatformShop.id == shop_id, PlatformShop.is_active == 1
+        ).first()
     if not shop:
         return
     exist = db.query(ExternalOrder).filter(
@@ -107,6 +118,53 @@ def _handle_logistics(db: Session, data: dict):
 
 
 def _handle_message(db: Session, data: dict):
-    """新消息 → 追加到对应会话。"""
-    # 一期简化：仅兼容，实际需要 conversation_id 映射
-    pass
+    """vMall 新消息 → SaaS Conversation 同步（双向桥接：消费端）"""
+    conv_id = data.get("conversation_id")
+    if not conv_id:
+        return
+    platform_conv_id = f"vmall_{conv_id}"
+
+    conv = db.query(Conversation).filter(
+        Conversation.platform_conversation_id == platform_conv_id
+    ).first()
+
+    if not conv:
+        shop_id = data.get("saas_shop_id")
+        if not shop_id:
+            shop = db.query(PlatformShop).filter(
+                PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
+            ).first()
+        else:
+            shop = db.query(PlatformShop).filter(
+                PlatformShop.id == shop_id, PlatformShop.is_active == 1
+            ).first()
+        if not shop:
+            return
+        buyer_id = data.get("buyer_id", "")
+        conv = Conversation(
+            shop_id=shop.id,
+            platform_conversation_id=platform_conv_id,
+            product_id=data.get("product_id"),
+            buyer_nick=data.get("buyer_nick") or f"买家{buyer_id}",
+            messages_json=[],
+            handled_status="pending",
+        )
+        db.add(conv)
+        db.flush()
+
+    msgs = list(conv.messages_json or [])
+    content = data.get("content", {})
+    if isinstance(content, dict):
+        text = content.get("text", str(content))
+    else:
+        text = str(content)
+    msgs.append({
+        "role": data.get("sender_role", "buyer"),
+        "content": text,
+        "time": data.get("created_at") or datetime.now().isoformat(),
+    })
+    conv.messages_json = msgs
+    conv.last_message_at = datetime.now()
+    if data.get("sender_role") == "buyer":
+        conv.handled_status = "pending"
+    db.commit()

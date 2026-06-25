@@ -2,6 +2,7 @@
 店铺管理接口（PHASE1-PLAN 4.2 / api.md 3.2）
 所有查询按 merchant_id 过滤。手动 /sync 替代二期 Celery 定时同步。
 """
+import secrets
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -48,6 +49,8 @@ def list_shops(current: CurrentUser = Depends(get_current_merchant), db: Session
             "is_active": s.is_active,
             "product_count": product_cnt,
             "order_count": order_cnt,
+            "bind_status": s.bind_status or "idle",
+            "bind_token": s.bind_token or "",
         })
     return ok(result)
 
@@ -96,6 +99,42 @@ def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_merchan
         "sync_status": shop.sync_status,
         "last_sync_at": shop.last_sync_at.isoformat() if shop.last_sync_at else None,
     })
+
+
+@router.post("/{shop_id}/bind-token")
+def generate_bind_token(
+    shop_id: int,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    """生成 vmall 绑定 token。"""
+    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    if shop.platform_type != "vmall":
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "仅 vmall 类型店铺可生成绑定 token"})
+    if shop.bind_status == "active":
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "已绑定，请先解绑再重新生成"})
+    token = secrets.token_urlsafe(24)
+    shop.bind_token = token
+    shop.bind_status = "pending"
+    db.commit()
+    return ok({"bind_token": token, "bind_status": "pending"}, msg="绑定 token 已生成")
+
+
+@router.post("/{shop_id}/regenerate-token")
+def regenerate_bind_token(
+    shop_id: int,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    """重新生成绑定 token。"""
+    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    if shop.bind_status == "active":
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "已绑定无法重新生成，请先解绑"})
+    token = secrets.token_urlsafe(24)
+    shop.bind_token = token
+    shop.bind_status = "pending"
+    db.commit()
+    return ok({"bind_token": token, "bind_status": "pending"}, msg="绑定 token 已重新生成")
 
 
 @router.post("/{shop_id}/sync")

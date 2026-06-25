@@ -1,5 +1,5 @@
 """订单主表"""
-from sqlalchemy import BigInteger, Column, DateTime, DECIMAL, ForeignKey, String, func
+from sqlalchemy import BigInteger, Column, DateTime, DECIMAL, ForeignKey, Integer, String, func
 from app.database.session import Base
 
 
@@ -7,6 +7,7 @@ class VmOrder(Base):
     __tablename__ = "vm_orders"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
+    merchant_id = Column(Integer, nullable=False, default=1, comment="商户ID")
     order_no = Column(String(30), nullable=False, unique=True)
     buyer_id = Column(BigInteger, ForeignKey("vm_buyers.id"), nullable=False)
     total_amount = Column(DECIMAL(10, 2), nullable=False)
