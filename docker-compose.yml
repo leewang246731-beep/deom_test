@@ -134,6 +134,54 @@ services:
       retries: 3
     restart: unless-stopped
 
+  # ===== vMall 前端 :8092 运营后台 =====
+  vmall-frontend-admin:
+    build:
+      context: ./vmall_system/frontend_admin
+      dockerfile: Dockerfile
+    container_name: vmall-frontend-admin
+    networks:
+      - saas-net
+    ports:
+      - "${VMALL_ADMIN_PORT:-8092}:80"
+    profiles:
+      - full
+    depends_on:
+      - vmall-backend
+    restart: unless-stopped
+
+  # ===== vMall 前端 :8091 商户端 =====
+  vmall-frontend-merchant:
+    build:
+      context: ./vmall_system/frontend_merchant
+      dockerfile: Dockerfile
+    container_name: vmall-frontend-merchant
+    networks:
+      - saas-net
+    ports:
+      - "${VMALL_MERCHANT_PORT:-8091}:80"
+    profiles:
+      - full
+    depends_on:
+      - vmall-backend
+    restart: unless-stopped
+
+  # ===== vMall 前端 :8090 买家H5 =====
+  vmall-frontend-consumer:
+    build:
+      context: ./vmall_system/frontend_consumer
+      dockerfile: Dockerfile
+    container_name: vmall-frontend-consumer
+    networks:
+      - saas-net
+    ports:
+      - "${VMALL_CONSUMER_PORT:-8090}:80"
+    profiles:
+      - full
+    depends_on:
+      - vmall-backend
+    restart: unless-stopped
+
 networks:
   saas-net:
     driver: bridge
