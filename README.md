@@ -8,30 +8,38 @@
 ## 快速启动
 
 ```bash
-# 1. 后端依赖 + 种子数据
+# 1. 后端依赖 + 种子数据 + 向量回填
 cd backend
 pip install -r requirements.txt
-python seed.py
+python seed.py --backfill --full   # 创建 3 商户、250 商品、200 订单等，并重建向量索引
 
-# 2. 向量化回填
-python -c "
-from app.database.session import SessionLocal
-from app.services.ai_suggest import backfill_all
-db=SessionLocal(); print(backfill_all(db, 2, full_rebuild=True)); db.close()
-"
+# 2. 启动后端
+uvicorn main:app --host 0.0.0.0 --port 8012
 
-# 3. 启动后端
-uvicorn main:app --port 8012 --reload
-
-# 4. 启动前端（3 个入口终端）
+# 3. 启动前端（3 个入口）
 cd ../frontend
 npm install
-npm run dev:admin      # :8093  平台管理
+npm run dev:admin      # :8093  平台管理后台
 npm run dev:merchant   # :8094  商户工作台
 npm run dev:service    # :8095  客服工作台
 ```
 
-登录：**admin / 123456**（admin / manager / service 三种角色均可用）
+### 登录账号
+
+| 入口 | 端口 | 账号 | 密码 | 角色 |
+|------|:---:|------|------|------|
+| 平台管理 | 8093 | super_admin | 123456 | 平台超级管理员 |
+| 商户工作台 | 8094 | admin | 123456 | 商户管理员 |
+| 客服工作台 | 8095 | service | 123456 | 客服人员 |
+
+> **多商户提示**: 种子数据创建了 3 个商户（数码旗舰/时尚女装/潮流美妆），每商户均有 admin/manager/service 用户。如登录时提示"该用户名在多个商户中存在"，需在下拉框中选择目标商户后重新登录。
+
+### 运行测试
+
+```bash
+cd backend
+python test_e2e_smoke.py   # 57 用例 E2E 冒烟测试（需后端已启动）
+```
 
 ---
 
@@ -314,3 +322,37 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 - 店铺绑定 → 生成 Token → vmall 端确认 → `/sync` 拉取数据
 - 物流感知 AI：`/ai/suggest` 自动查询 vMall 物流状态注入 Prompt
 - Webhook：接收 ORDER_PAID / LOGISTICS_UPDATED / REFUND_SUCCESS 事件
+
+---
+
+## 设计决策 (By Design)
+
+以下特性为**有意设计**，非缺陷：
+
+| 决策 | 说明 |
+|------|------|
+| **商品不支持手动 CRUD** | 商品通过平台连接器同步 (`POST /products/sync/{shop_id}`)，`POST/PUT/DELETE /products` 仅提供基础的增删改用于测试 |
+| **WebSocket 独立于 REST** | `/ws/service` 用于实时推送（AI 建议、会话状态），REST 端点已覆盖所有数据操作 |
+| **语义搜索依赖向量回填** | 首次部署必须执行 `python seed.py --backfill --full`，否则搜索返回空结果 |
+| **AI 功能依赖 DashScope** | 所有 AI 功能（话术、催付、RAG、语义搜索）需有效 DashScope API key；API 不可用时端点返回明确错误信息 |
+| **工单分类按商户隔离** | `ticket_categories` 表按 `merchant_id` 隔离，每个商户独立管理分类树 |
+| **openapi.py 保留 `body: dict`** | 外部 API 契约（vMall 集成），使用 API Key 认证，保持向后兼容 |
+| **多商户登录需指定 merchant_id** | 同名用户在不同商户中使用时，前端自动弹出商户选择下拉框 |
+
+---
+
+## 变更记录
+
+### v2.0.1 (2026-06-26)
+
+- **修复**: 平台运营登录路由注册 (BUG-001)
+- **修复**: 工单创建 500 错误 — 全端点 Pydantic Schema 化 (BUG-002, BUG-006)
+- **修复**: 多租户登录隔离 — 同名用户检测 + 商户选择 (BUG-005)
+- **修复**: 语义搜索空结果 — 306 个向量回填 (BUG-003)
+- **修复**: AI 催付空数据 — 错误处理改进 (BUG-004)
+- **修复**: 工单分类路由排序 — `/categories` 被 `/{ticket_id}` 拦截 (BUG-009)
+- **修复**: 店铺重名检查 (BUG-011)
+- **改进**: `body: dict` 全面替换为 Pydantic Schema (34→5，85% 清理率)
+- **改进**: 响应格式统一 — `/shops` 和 `/orders/pending-payment` 改为分页格式
+- **改进**: 前端登录增加多商户选择 UI
+- **新增**: E2E 冒烟测试脚本 (`test_e2e_smoke.py`, 57 用例)

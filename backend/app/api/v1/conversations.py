@@ -18,6 +18,7 @@ from app.core.security import decode_token
 from app.database.session import SessionLocal, get_db
 from app.models.conversation import Conversation
 from app.models.platform_shop import PlatformShop
+from app.schemas import ConversationMessageSend
 
 router = APIRouter(tags=["客服工作台"])
 ws_router = APIRouter(tags=["客服工作台-WS"])  # 无 /api/v1 前缀，挂根路径
@@ -117,7 +118,7 @@ def assign_conversation(conv_id: int, current: CurrentUser = Depends(get_current
 
 
 @router.post("/conversations/{conv_id}/messages")
-def send_conversation_message(conv_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def send_conversation_message(conv_id: int, body: ConversationMessageSend, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
     """客服发送消息 → 追加到 SaaS Conversation + 同步回 vMall（双向桥接：去程）"""
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     c = db.query(Conversation).filter(
@@ -126,7 +127,7 @@ def send_conversation_message(conv_id: int, body: dict, current: CurrentUser = D
     ).first()
     if not c:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
-    content = body.get("content", "")
+    content = body.content
     now = datetime.now()
     msgs = list(c.messages_json or [])
     msgs.append({"role": "service", "content": content, "time": now.strftime("%Y-%m-%d %H:%M:%S")})

@@ -5,8 +5,12 @@ export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('token') || '')
   const user = ref(JSON.parse(localStorage.getItem('user') || 'null'))
 
-  const isLoggedIn = computed(() => !!token.value)
+  const platformToken = ref(localStorage.getItem('platform_token') || '')
+  const platformUser = ref(JSON.parse(localStorage.getItem('platform_user') || 'null'))
 
+  const isLoggedIn = computed(() => !!token.value || !!platformToken.value)
+
+  // 商户端登录
   function login(data) {
     token.value = data.access_token
     user.value = data.user
@@ -21,5 +25,20 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('user')
   }
 
-  return { token, user, isLoggedIn, login, logout }
+  // 平台端登录
+  function loginPlatform(data) {
+    platformToken.value = data.access_token
+    platformUser.value = data.user
+    localStorage.setItem('platform_token', data.access_token)
+    localStorage.setItem('platform_user', JSON.stringify(data.user))
+  }
+
+  function logoutPlatform() {
+    platformToken.value = ''
+    platformUser.value = null
+    localStorage.removeItem('platform_token')
+    localStorage.removeItem('platform_user')
+  }
+
+  return { token, user, platformToken, platformUser, isLoggedIn, login, logout, loginPlatform, logoutPlatform }
 })

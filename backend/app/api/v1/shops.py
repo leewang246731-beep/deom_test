@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.platform_connector import get_platform_connector
 from app.core.response import ok
 from app.database.session import get_db
@@ -31,10 +31,11 @@ def _get_owned_shop(db: Session, shop_id: int, merchant_id: int) -> PlatformShop
 
 
 @router.get("")
-def list_shops(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    shops = db.query(PlatformShop).filter(
-        PlatformShop.merchant_id == current.merchant_id
-    ).order_by(PlatformShop.id).all()
+def list_shops(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(PlatformShop)
+    if current.merchant_id is not None:
+        q = q.filter(PlatformShop.merchant_id == current.merchant_id)
+    shops = q.order_by(PlatformShop.id).all()
     result = []
     for s in shops:
         product_cnt = db.query(ExternalProduct).filter(ExternalProduct.shop_id == s.id).count()
@@ -61,6 +62,14 @@ def bind_shop(
     current: CurrentUser = Depends(require_roles("admin", "manager")),
     db: Session = Depends(get_db),
 ):
+    # 重名检查
+    exist = db.query(PlatformShop).filter(
+        PlatformShop.merchant_id == current.merchant_id,
+        PlatformShop.shop_name == body.shop_name,
+    ).first()
+    if exist:
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "店铺名称已存在"})
+
     shop = PlatformShop(
         merchant_id=current.merchant_id,
         platform_type=body.platform_type,
@@ -112,11 +121,12 @@ async def trigger_sync_all():
 
 
 @router.get("/connectors")
-def connector_status(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def connector_status(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     """各平台连接器状态总览。"""
-    shops = db.query(PlatformShop).filter(
-        PlatformShop.merchant_id == current.merchant_id
-    ).order_by(PlatformShop.id).all()
+    shops_q = db.query(PlatformShop)
+    if current.merchant_id is not None:
+        shops_q = shops_q.filter(PlatformShop.merchant_id == current.merchant_id)
+    shops = shops_q.order_by(PlatformShop.id).all()
     result = []
     for s in shops:
         product_cnt = db.query(ExternalProduct).filter(ExternalProduct.shop_id == s.id).count()
@@ -132,8 +142,13 @@ def connector_status(current: CurrentUser = Depends(get_current_merchant), db: S
 
 
 @router.get("/{shop_id}/status")
-def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    shop_q = db.query(PlatformShop).filter(PlatformShop.id == shop_id)
+    if current.merchant_id is not None:
+        shop_q = shop_q.filter(PlatformShop.merchant_id == current.merchant_id)
+    shop = shop_q.first()
+    if not shop:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
     return ok({
         "id": shop.id,
         "sync_status": shop.sync_status,

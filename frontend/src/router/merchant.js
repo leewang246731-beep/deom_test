@@ -32,6 +32,7 @@ const routes = [
 const router = createRouter({ history: createWebHashHistory(), routes })
 
 router.beforeEach((to) => {
+  // 商户工作台仅认商户 token（拒绝平台 token）
   const token = localStorage.getItem('token')
   const userStr = localStorage.getItem('user')
   let user = null
@@ -44,7 +45,7 @@ router.beforeEach((to) => {
 
   if (!token) return '/login'
 
-  // Merchant portal: block service-only users
+  // 商户工作台拒绝客服角色
   if (user && user.role === 'service') {
     return '/login'
   }

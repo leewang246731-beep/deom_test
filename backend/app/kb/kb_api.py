@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import get_db
+from app.schemas import KbDocumentCreate, KbAskRequest, KbConversationCreate, KbSyncRequest
 
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 from app.kb.processor import process_document, batch_process
@@ -105,15 +106,15 @@ def list_documents(
 
 
 @router.post("/documents")
-def create_document(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
+def create_document(body: KbDocumentCreate, authorization: str = Header(None), db: Session = Depends(get_db)):
     user = _get_user(authorization)
     mid = user.get("merchant_id", 1)
     doc = KbDocument(
         merchant_id=mid,
-        title=body["title"],
-        content=body.get("content", ""),
-        source_type=body.get("source_type", "manual"),
-        source_id=body.get("source_id"),
+        title=body.title,
+        content=body.content or "",
+        source_type=body.source_type or "manual",
+        source_id=body.source_id,
         status="pending",
     )
     db.add(doc); db.commit(); db.refresh(doc)
@@ -136,13 +137,13 @@ def delete_document(doc_id: int, authorization: str = Header(None), db: Session 
 # ========== 问答（SSE 流式） ==========
 
 @router.post("/ask")
-async def kb_ask(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
+async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Session = Depends(get_db)):
     """知识库问答 SSE 流式输出"""
     user = _get_user(authorization)
-    mid = body.get("merchant_id") or user.get("merchant_id") or 1
-    query = body["question"]
-    conv_id = body.get("conversation_id")
-    mode = body.get("mode", "auto")
+    mid = body.merchant_id or user.get("merchant_id") or 1
+    query = body.question
+    conv_id = body.conversation_id
+    mode = body.mode or "auto"
 
     optimizer = QueryOptimizer(_llm_call)
     evaluator = CragEvaluator(_llm_call)
@@ -237,13 +238,13 @@ def list_conversations(
 
 
 @router.post("/conversations")
-def create_conversation(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
+def create_conversation(body: KbConversationCreate, authorization: str = Header(None), db: Session = Depends(get_db)):
     user = _get_user(authorization)
     mid = user.get("merchant_id", 1)
     conv = KbConversation(
         merchant_id=mid, user_id=user.get("sub", 0),
-        title=body.get("title", "新对话"),
-        retrieval_mode=body.get("mode", "auto"),
+        title=body.title or "新对话",
+        retrieval_mode=body.mode or "auto",
     )
     db.add(conv); db.commit(); db.refresh(conv)
     return ok({"id": conv.id, "title": conv.title})
@@ -272,13 +273,13 @@ def kb_stats(authorization: str = Header(None), db: Session = Depends(get_db)):
 
 
 @router.post("/sync")
-def sync_shop_knowledge(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
+def sync_shop_knowledge(body: KbSyncRequest, authorization: str = Header(None), db: Session = Depends(get_db)):
     """
     同步店铺知识：在商户绑定 SaaS 后调用。
     从外部商品表提取数据，生成知识文档并向量化。
     """
     user = _get_user(authorization)
-    mid = body.get("merchant_id") or user.get("merchant_id") or 1
+    mid = body.merchant_id or user.get("merchant_id") or 1
     from app.models.external_product import ExternalProduct
 
     products = db.query(ExternalProduct).filter(ExternalProduct.shop_id.in_(

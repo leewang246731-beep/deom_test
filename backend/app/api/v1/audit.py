@@ -1,8 +1,8 @@
-"""操作审计日志接口"""
+"""操作审计日志接口（平台端：跨租户查看）"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_platform_user
 from app.core.response import ok, page
 from app.database.session import get_db
 from app.models.audit_log import AuditLog
@@ -14,11 +14,13 @@ router = APIRouter(prefix="/audit-logs", tags=["审计日志"])
 def list_audit_logs(
     page_no: int = Query(1, alias="page"), page_size: int = Query(20),
     action: str = Query(None), target_type: str = Query(None),
-    user_id: int = Query(None),
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    user_id: int = Query(None), merchant_id: int = Query(None),
+    current: CurrentUser = Depends(get_platform_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(AuditLog).filter(AuditLog.merchant_id == current.merchant_id)
+    q = db.query(AuditLog)
+    if merchant_id:
+        q = q.filter(AuditLog.merchant_id == merchant_id)
     if action:
         q = q.filter(AuditLog.action == action)
     if target_type:

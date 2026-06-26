@@ -45,6 +45,14 @@ def create_access_token(user_id: int, merchant_id: int, role: str) -> str:
     )
 
 
+def create_platform_token(user_id: int, role: str) -> str:
+    """签发平台运营账号 token（无 merchant_id，可跨租户）。"""
+    return _create_token(
+        {"sub": str(user_id), "role": role, "type": "platform"},
+        timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+
+
 def create_refresh_token(user_id: int, merchant_id: int) -> str:
     return _create_token(
         {"sub": str(user_id), "merchant_id": merchant_id, "type": "refresh"},

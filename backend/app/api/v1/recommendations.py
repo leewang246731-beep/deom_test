@@ -8,14 +8,14 @@ from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_r
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.product_recommendation_rule import ProductRecommendationRule
-from app.schemas import RecommendationRuleCreate
+from app.schemas import RecommendationRuleCreate, RecommendationRuleUpdate, SimilarProductsRequest, BuyerRecommendationRequest
 
 router = APIRouter(prefix="/recommendations", tags=["推荐"])
 
 
 @router.post("/similar")
 def similar_products(
-    body: dict,
+    body: SimilarProductsRequest,
     current: CurrentUser = Depends(get_current_merchant),
     db: Session = Depends(get_db),
 ):
@@ -23,18 +23,18 @@ def similar_products(
     from app.services.recommendation import recommend_similar
     results = recommend_similar(
         db, current.merchant_id,
-        product_id=body.get("product_id"),
-        shop_id=body.get("shop_id"),
-        top_k=body.get("top_k", 10),
-        exclude_bought=body.get("exclude_bought", False),
-        buyer_openid=body.get("buyer_openid"),
+        product_id=body.product_id,
+        shop_id=body.shop_id,
+        top_k=body.top_k or 10,
+        exclude_bought=body.exclude_bought or False,
+        buyer_openid=body.buyer_openid,
     )
-    return ok({"source_product": {"id": body.get("product_id")}, "recommendations": results})
+    return ok({"source_product": {"id": body.product_id}, "recommendations": results})
 
 
 @router.post("/for-buyer")
 def buyer_recommendations(
-    body: dict,
+    body: BuyerRecommendationRequest,
     current: CurrentUser = Depends(get_current_merchant),
     db: Session = Depends(get_db),
 ):
@@ -42,9 +42,9 @@ def buyer_recommendations(
     from app.services.recommendation import recommend_for_buyer
     results = recommend_for_buyer(
         db, current.merchant_id,
-        buyer_openid=body.get("buyer_openid"),
-        shop_id=body.get("shop_id"),
-        top_k=body.get("top_k", 10),
+        buyer_openid=body.buyer_openid,
+        shop_id=body.shop_id,
+        top_k=body.top_k or 10,
     )
     return ok({"recommendations": results})
 
@@ -99,7 +99,7 @@ def create_rule(
 @router.put("/rules/{rule_id}")
 def update_rule(
     rule_id: int,
-    body: dict,
+    body: RecommendationRuleUpdate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
     db: Session = Depends(get_db),
 ):
@@ -110,8 +110,9 @@ def update_rule(
     if not rule:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "规则不存在"})
     for field in ("rule_type", "priority", "is_active"):
-        if field in body:
-            setattr(rule, field, body[field])
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(rule, field, val)
     db.commit()
     return ok({"id": rule.id, "rule_type": rule.rule_type, "priority": rule.priority, "is_active": rule.is_active}, msg="已更新")
 

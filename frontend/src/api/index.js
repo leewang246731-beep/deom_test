@@ -1,7 +1,8 @@
 import http from './request'
 
 // ---- auth ----
-export const login = (username, password) => http.post('/auth/login', { username, password })
+export const login = (username, password, merchant_id) => http.post('/auth/login', { username, password, merchant_id })
+export const loginPlatform = (username, password) => http.post('/auth/platform/login', { username, password })
 
 // ---- shops ----
 export const getShops = () => http.get('/shops')

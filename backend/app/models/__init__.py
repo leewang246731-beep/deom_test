@@ -4,6 +4,7 @@
 """
 from app.models.merchant import Merchant
 from app.models.merchant_user import MerchantUser
+from app.models.platform_user import PlatformUser
 from app.models.platform_shop import PlatformShop
 from app.models.external_product import ExternalProduct
 from app.models.external_order import ExternalOrder
@@ -27,7 +28,8 @@ from app.models.webhook_delivery_log import WebhookDeliveryLog
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 
 __all__ = [
-    "Merchant", "MerchantUser", "PlatformShop", "ExternalProduct", "ExternalOrder",
+    "Merchant", "MerchantUser", "PlatformUser",
+    "PlatformShop", "ExternalProduct", "ExternalOrder",
     "Conversation", "Category", "AISuggestionLog", "AIStyleConfig",
     "BuyerProfile", "ProductCoPurchase", "ProductRecommendationRule",
     "SkillGroup", "SkillMember", "SLAPolicy",

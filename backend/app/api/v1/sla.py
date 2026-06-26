@@ -6,6 +6,7 @@ from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_r
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.sla_policy import SLAPolicy
+from app.schemas import SLAPolicyCreate, SLAPolicyUpdate
 
 router = APIRouter(prefix="/sla", tags=["SLA"])
 
@@ -21,23 +22,20 @@ def list_policies(current: CurrentUser = Depends(get_current_merchant), db: Sess
 
 
 @router.post("/policies")
-def create_policy(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def create_policy(body: SLAPolicyCreate, current: CurrentUser = Depends(require_roles("admin", "manager")),
                   db: Session = Depends(get_db)):
-    if body.get("priority") not in ("P0", "P1", "P2", "P3"):
+    if body.priority not in ("P0", "P1", "P2", "P3"):
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "优先级必须为 P0/P1/P2/P3"})
-    p = SLAPolicy(merchant_id=current.merchant_id, priority=body["priority"],
-                  category_id=body.get("category_id"),
-                  response_minutes=body.get("response_minutes", 60),
-                  resolve_minutes=body.get("resolve_minutes", 480),
-                  escalate_minutes=body.get("escalate_minutes"),
-                  escalate_to=body.get("escalate_to"))
+    p = SLAPolicy(merchant_id=current.merchant_id, priority=body.priority,
+                  response_minutes=body.response_minutes,
+                  resolve_minutes=body.resolve_minutes)
     db.add(p)
     db.commit()
     return ok({"id": p.id}, msg="已创建")
 
 
 @router.put("/policies/{policy_id}")
-def update_policy(policy_id: int, body: dict,
+def update_policy(policy_id: int, body: SLAPolicyUpdate,
                   current: CurrentUser = Depends(require_roles("admin", "manager")),
                   db: Session = Depends(get_db)):
     p = db.query(SLAPolicy).filter(SLAPolicy.id == policy_id,
@@ -45,8 +43,9 @@ def update_policy(policy_id: int, body: dict,
     if not p:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "策略不存在"})
     for f in ("response_minutes", "resolve_minutes", "escalate_minutes", "escalate_to", "is_active"):
-        if f in body:
-            setattr(p, f, body[f])
+        val = getattr(body, f, None)
+        if val is not None:
+            setattr(p, f, val)
     db.commit()
     return ok({"id": p.id}, msg="已更新")
 

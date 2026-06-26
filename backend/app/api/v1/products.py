@@ -16,6 +16,7 @@ from app.core.response import ok, page
 from app.database.session import get_db
 from app.models.external_product import ExternalProduct
 from app.models.platform_shop import PlatformShop
+from app.schemas import ProductCreate, ProductUpdate
 
 router = APIRouter(prefix="/products", tags=["商品库"])
 
@@ -165,23 +166,23 @@ async def sync_products(
 
 @router.post("")
 def create_product(
-    body: dict,
+    body: ProductCreate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
     db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    if body.get("shop_id") not in shop_ids:
+    if body.shop_id not in shop_ids:
         raise HTTPException(status_code=403, detail={"code": 40301, "msg": "无权操作该店铺"})
     p = ExternalProduct(
-        shop_id=body["shop_id"],
-        platform_product_id=body.get("platform_product_id", f"manual_{int(datetime.now().timestamp())}"),
-        title=body["title"],
-        price=body.get("price", 0),
-        stock=body.get("stock", 0),
-        description=body.get("description", ""),
-        images_json=body.get("images_json", []),
-        category_path=body.get("category_path", ""),
-        status=body.get("status", 1),
+        shop_id=body.shop_id,
+        platform_product_id=body.platform_product_id or f"manual_{int(datetime.now().timestamp())}",
+        title=body.title,
+        price=body.price or 0,
+        stock=body.stock or 0,
+        description=body.description or "",
+        images_json=body.images_json or [],
+        category_path=body.category_path or "",
+        status=body.status or 1,
         embedding_status="pending",
         last_sync_at=datetime.now(),
     )
@@ -194,7 +195,7 @@ def create_product(
 @router.put("/{product_id}")
 def update_product(
     product_id: int,
-    body: dict,
+    body: ProductUpdate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
     db: Session = Depends(get_db),
 ):
@@ -205,11 +206,10 @@ def update_product(
     ).first()
     if not p:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "商品不存在"})
-    for field in ("title", "price", "stock", "description", "category_path", "status"):
-        if field in body:
-            setattr(p, field, body[field])
-    if "images_json" in body:
-        p.images_json = body["images_json"]
+    for field in ("title", "price", "stock", "description", "category_path", "status", "images_json"):
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(p, field, val)
     db.commit()
     db.refresh(p)
     return ok(_product_dict(p), msg="商品已更新")

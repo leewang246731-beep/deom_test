@@ -11,7 +11,7 @@ from app.core.response import ok
 from app.database.session import get_db
 from app.models.ai_suggestion_log import AISuggestionLog
 from app.models.ai_style_config import AIStyleConfig
-from app.schemas import AICampaignRequest, AISearchRequest, AISuggestLogRequest, AISuggestRequest
+from app.schemas import AICampaignRequest, AISearchRequest, AISuggestLogRequest, AISuggestRequest, AIStyleCreate, AIStyleUpdate
 
 router = APIRouter(prefix="/ai", tags=["AI 引擎"])
 
@@ -48,9 +48,12 @@ def ai_campaign(
 ):
     try:
         from app.services.ai_suggest import generate_payment_reminders
-        return ok(generate_payment_reminders(current.merchant_id, body.shop_id, db))
+        result = generate_payment_reminders(current.merchant_id, body.shop_id, db)
+        if result is None or (isinstance(result, dict) and not result.get("reminders")):
+            return ok({"reminders": [], "count": 0, "msg": "当前无待催付订单或 AI 服务暂时不可用"})
+        return ok(result)
     except Exception as e:
-        return ok({"reminders": [], "count": 0, "note": f"AI 催单待步骤6 接入: {e}"})
+        return ok({"reminders": [], "count": 0, "msg": f"AI 催付服务调用失败: {str(e)}"})
 
 
 @router.post("/search")
@@ -100,14 +103,14 @@ def list_styles(current: CurrentUser = Depends(get_current_merchant), db: Sessio
 
 
 @router.post("/styles")
-def create_style(body: dict, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def create_style(body: AIStyleCreate, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
     s = AIStyleConfig(
         merchant_id=current.merchant_id,
-        name=body.get("name", "自定义"),
-        style_key=body.get("style_key", "custom"),
-        tone=body.get("tone", ""),
-        greeting=body.get("greeting", ""),
-        features=body.get("features", {}),
+        name=body.name,
+        style_key="custom",
+        tone="",
+        greeting="",
+        features={},
     )
     db.add(s)
     db.commit()
@@ -115,15 +118,21 @@ def create_style(body: dict, current: CurrentUser = Depends(get_current_merchant
 
 
 @router.put("/styles/{style_id}")
-def update_style(style_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant),
+def update_style(style_id: int, body: AIStyleUpdate, current: CurrentUser = Depends(get_current_merchant),
                  db: Session = Depends(get_db)):
     s = db.query(AIStyleConfig).filter(AIStyleConfig.id == style_id,
                                         AIStyleConfig.merchant_id == current.merchant_id).first()
     if not s:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "风格不存在"})
     for field in ("name", "tone", "greeting", "features"):
-        if field in body:
-            setattr(s, field, body[field])
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(s, field, val)
+    if body.is_default:
+        db.query(AIStyleConfig).filter(
+            AIStyleConfig.merchant_id == current.merchant_id, AIStyleConfig.is_default == True
+        ).update({"is_default": False})
+        s.is_default = True
     db.commit()
     return ok({"id": s.id}, msg="已更新")
 

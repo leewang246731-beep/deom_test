@@ -11,6 +11,7 @@ from app.core.response import ok
 from app.database.session import get_db
 from app.models.merchant import Merchant
 from app.models.platform_shop import PlatformShop
+from app.schemas import GenerateBindTokenRequest, ConfirmBindRequest, UnbindShopRequest, RegisterShopRequest
 
 router = APIRouter(prefix="/openapi", tags=["OpenAPI"])
 
@@ -24,12 +25,11 @@ def _verify_key(x_api_key: str = Header(None)):
 
 
 @router.post("/generate-bind-token")
-def generate_bind_token(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def generate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = Depends(require_roles("admin", "manager")),
                         db: Session = Depends(get_db)):
     """SaaS 管理端：为指定 vmall 店铺生成绑定 token。"""
-    shop_id = body.get("shop_id")
     shop = db.query(PlatformShop).filter(
-        PlatformShop.id == shop_id, PlatformShop.merchant_id == current.merchant_id
+        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == current.merchant_id
     ).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
@@ -48,12 +48,11 @@ def generate_bind_token(body: dict, current: CurrentUser = Depends(require_roles
 
 
 @router.post("/regenerate-bind-token")
-def regenerate_bind_token(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def regenerate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = Depends(require_roles("admin", "manager")),
                           db: Session = Depends(get_db)):
     """重新生成绑定 token。"""
-    shop_id = body.get("shop_id")
     shop = db.query(PlatformShop).filter(
-        PlatformShop.id == shop_id, PlatformShop.merchant_id == current.merchant_id
+        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == current.merchant_id
     ).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
@@ -67,10 +66,9 @@ def regenerate_bind_token(body: dict, current: CurrentUser = Depends(require_rol
 
 
 @router.post("/confirm-bind")
-def confirm_bind(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+def confirm_bind(body: ConfirmBindRequest, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
     """vMall 端调用：用 token 确认绑定。幂等：同一 token 重复调用返回已有数据。"""
-    token = body.get("bind_token", "")
-    shop = db.query(PlatformShop).filter(PlatformShop.bind_token == token).first()
+    shop = db.query(PlatformShop).filter(PlatformShop.bind_token == body.bind_token).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "无效的绑定 token"})
 
@@ -82,9 +80,8 @@ def confirm_bind(body: dict, _: bool = Depends(_verify_key), db: Session = Depen
             "registered_at": datetime.now().isoformat(),
         })
 
-    vmall_url = body.get("vmall_url", "")
     shop.bind_status = "active"
-    shop.shop_url = vmall_url
+    shop.shop_url = body.vmall_url or ""
     db.commit()
 
     return ok({
@@ -96,10 +93,9 @@ def confirm_bind(body: dict, _: bool = Depends(_verify_key), db: Session = Depen
 
 
 @router.post("/unbind-shop")
-def unbind_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+def unbind_shop(body: UnbindShopRequest, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
     """vMall 解绑通知 → 重置 SaaS 侧 bind_status。"""
-    shop_id = body.get("shop_id")
-    shop = db.query(PlatformShop).filter(PlatformShop.id == shop_id).first()
+    shop = db.query(PlatformShop).filter(PlatformShop.id == body.shop_id).first()
     if shop and shop.bind_status == "active":
         shop.bind_status = "idle"
         shop.bind_token = None
@@ -108,20 +104,17 @@ def unbind_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depend
 
 
 @router.post("/register-shop")
-def register_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
+def register_shop(body: RegisterShopRequest, _: bool = Depends(_verify_key), db: Session = Depends(get_db)):
     """vMall 商户绑定注册（兼容旧版调用）。创建 SaaS Merchant + PlatformShop，返回 saas_shop_id。"""
-    shop_name = body["shop_name"]
-    saas_url = body.get("saas_url", "")
-
-    merchant = Merchant(name=shop_name, contact=body.get("contact_phone", ""), status=1)
+    merchant = Merchant(name=body.shop_name, contact=body.contact_phone or "", status=1)
     db.add(merchant)
     db.flush()
 
     shop = PlatformShop(
         merchant_id=merchant.id,
         platform_type="vmall",
-        shop_name=shop_name,
-        shop_url=saas_url,
+        shop_name=body.shop_name,
+        shop_url=body.saas_url or "",
         sync_status="idle",
         is_active=1,
     )
@@ -132,6 +125,6 @@ def register_shop(body: dict, _: bool = Depends(_verify_key), db: Session = Depe
     return ok({
         "saas_merchant_id": merchant.id,
         "saas_shop_id": shop.id,
-        "shop_name": shop.shop_name,
+        "shop_name": body.shop_name,
         "registered_at": datetime.now().isoformat(),
     })

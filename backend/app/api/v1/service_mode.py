@@ -11,6 +11,7 @@ from app.database.session import get_db
 from app.models.conversation import Conversation
 from app.models.service_mode import AutoReplyLog, ServiceModeConfig
 from app.services.mode_engine import get_mode_config, switch_mode, clear_pending_timeout
+from app.schemas import ServiceModeConfigUpdate, ConversationModeSwitch
 
 router = APIRouter(prefix="/service-mode", tags=["客服模式"])
 
@@ -32,29 +33,30 @@ def get_config(current: CurrentUser = Depends(get_current_merchant), db: Session
 
 
 @router.put("/config")
-def update_config(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def update_config(body: ServiceModeConfigUpdate, current: CurrentUser = Depends(require_roles("admin", "manager")),
                   db: Session = Depends(get_db)):
     cfg = get_mode_config(db, current.merchant_id)
     for field in ("default_mode", "auto_mode_hours", "auto_confidence_threshold",
                   "fallback_confidence_threshold", "human_response_timeout_seconds",
                   "fallback_escalate_timeout_seconds", "fallback_template", "busy_template", "offline_template"):
-        if field in body:
-            setattr(cfg, field, body[field])
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(cfg, field, val)
     db.commit()
     return ok({"id": cfg.id}, msg="配置已更新")
 
 
 @router.post("/conversations/{conv_id}/mode")
-def set_conv_mode(conv_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant),
+def set_conv_mode(conv_id: int, body: ConversationModeSwitch, current: CurrentUser = Depends(get_current_merchant),
                   db: Session = Depends(get_db)):
     """切换单个会话模式。"""
     conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
     if not conv:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
-    mode = body.get("mode")
+    mode = body.mode
     if mode not in ("manual", "copilot", "auto"):
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "模式必须为 manual/copilot/auto"})
-    result = switch_mode(db, conv, mode, body.get("reason", "手动切换"))
+    result = switch_mode(db, conv, mode, body.reason or "手动切换")
     return ok(result, msg=f"已切换为 {mode}")
 
 

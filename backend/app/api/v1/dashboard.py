@@ -1,11 +1,11 @@
-"""数据看板接口（api.md 3.7 + REQUIREMENTS-V2 + PHASE3）"""
+"""数据看板接口（支持平台跨租户 + 商户租户隔离）"""
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.ai_suggestion_log import AISuggestionLog
@@ -19,18 +19,29 @@ from app.models.service_mode import AutoReplyLog
 router = APIRouter(prefix="/dashboard", tags=["数据看板"])
 
 
-def _shop_ids(db: Session, merchant_id: int) -> list:
-    return [r[0] for r in db.query(PlatformShop.id).filter(PlatformShop.merchant_id == merchant_id).all()]
+def _shop_ids(db: Session, merchant_id: int | None) -> list:
+    """merchant_id=None 时返回所有活跃店铺ID（平台跨租户视角）。"""
+    q = db.query(PlatformShop.id)
+    if merchant_id is not None:
+        q = q.filter(PlatformShop.merchant_id == merchant_id)
+    return [r[0] for r in q.all()]
+
+
+def _merchant_ids(current: CurrentUser, db: Session) -> list | None:
+    """返回当前用户可见的 merchant_id 列表；None 表示跨全部租户（平台视角）。"""
+    if current.token_type == "platform":
+        return None
+    return [current.merchant_id]
 
 
 @router.get("/metrics")
 def metrics(
     start: str = Query(None),
     end: str = Query(None),
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    mid = current.merchant_id
+    mid = current.merchant_id  # None for platform
     shop_ids = _shop_ids(db, mid)
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -50,9 +61,12 @@ def metrics(
     else:
         total_orders = today_orders = pending_convs = 0
 
-    active_shops = db.query(PlatformShop).filter(
-        PlatformShop.merchant_id == mid, PlatformShop.is_active == 1).count()
+    active_shops_q = db.query(PlatformShop).filter(PlatformShop.is_active == 1)
+    if mid is not None:
+        active_shops_q = active_shops_q.filter(PlatformShop.merchant_id == mid)
+    active_shops = active_shops_q.count()
 
+    # AI 采纳率（跨全部数据）
     sugg_q = db.query(AISuggestionLog)
     if start:
         sugg_q = sugg_q.filter(AISuggestionLog.created_at >= start)
@@ -62,11 +76,23 @@ def metrics(
     adopted = sugg_q.filter(AISuggestionLog.was_adopted > 0).count()
     adoption_rate = round(adopted / total_suggs, 2) if total_suggs > 0 else 0
 
-    ticket_q = db.query(Ticket).filter(Ticket.merchant_id == mid)
+    ticket_q = db.query(Ticket)
+    if mid is not None:
+        ticket_q = ticket_q.filter(Ticket.merchant_id == mid)
     total_tickets = _date_filter(ticket_q, Ticket.created_at).count()
-    pending_tickets = _date_filter(db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "pending"), Ticket.created_at).count()
-    today_tickets = db.query(Ticket).filter(Ticket.merchant_id == mid, func.date(Ticket.created_at) == today).count()
-    sla_breached = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.sla_breached == 1).count()
+    pending_tickets = _date_filter(
+        db.query(Ticket).filter(Ticket.status == "pending") if mid is None
+        else db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "pending"),
+        Ticket.created_at,
+    ).count()
+    today_tickets_q = db.query(Ticket)
+    if mid is not None:
+        today_tickets_q = today_tickets_q.filter(Ticket.merchant_id == mid)
+    today_tickets = today_tickets_q.filter(func.date(Ticket.created_at) == today).count()
+    breached_q = db.query(Ticket).filter(Ticket.sla_breached == 1)
+    if mid is not None:
+        breached_q = breached_q.filter(Ticket.merchant_id == mid)
+    sla_breached = breached_q.count()
 
     return ok({
         "total_orders": total_orders, "today_orders": today_orders,
@@ -80,7 +106,7 @@ def metrics(
 @router.get("/order-trend")
 def order_trend(
     range: str = Query("week"),
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     shop_ids = _shop_ids(db, current.merchant_id)
@@ -109,10 +135,11 @@ def order_trend(
 
 @router.get("/service-stats")
 def service_stats(
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    shop_ids = _shop_ids(db, current.merchant_id)
+    mid = current.merchant_id
+    shop_ids = _shop_ids(db, mid)
     if not shop_ids:
         return ok({"total_conversations": 0, "pending": 0, "replied": 0, "closed": 0, "ai_adoption_rate": 0, "avg_response_minutes": 0, "per_service": []})
 
@@ -125,8 +152,11 @@ def service_stats(
     adopted = db.query(AISuggestionLog).filter(AISuggestionLog.was_adopted > 0).count()
     adoption_rate = round(adopted / total_suggs, 2) if total_suggs > 0 else 0
 
-    # 每人统计
-    users = db.query(MerchantUser).filter(MerchantUser.merchant_id == current.merchant_id).all()
+    # 每人统计（平台视角看全部客服，商户视角只看自己）
+    users_q = db.query(MerchantUser)
+    if mid is not None:
+        users_q = users_q.filter(MerchantUser.merchant_id == mid)
+    users = users_q.all()
     per_service = []
     for u in users:
         handled = convs.filter(Conversation.assigned_to == u.id).count()
@@ -145,25 +175,37 @@ def service_stats(
 
 
 @router.get("/ticket-stats")
-def ticket_stats(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def ticket_stats(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     mid = current.merchant_id
-    total = db.query(Ticket).filter(Ticket.merchant_id == mid).count()
-    pending = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "pending").count()
-    in_progress = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "in_progress").count()
-    waiting = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "waiting_customer").count()
-    resolved_today = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.status == "resolved",
-                                              func.date(Ticket.resolved_at) == datetime.now().strftime("%Y-%m-%d")).count()
-    breached = db.query(Ticket).filter(Ticket.merchant_id == mid, Ticket.sla_breached == 1).count()
+    def _tq(status=None):
+        q = db.query(Ticket)
+        if mid is not None:
+            q = q.filter(Ticket.merchant_id == mid)
+        if status:
+            q = q.filter(Ticket.status == status)
+        return q
+    total = _tq().count()
+    pending = _tq("pending").count()
+    in_progress = _tq("in_progress").count()
+    waiting = _tq("waiting_customer").count()
+    resolved_today = _tq("resolved").filter(func.date(Ticket.resolved_at) == datetime.now().strftime("%Y-%m-%d")).count()
+    breached_q = db.query(Ticket).filter(Ticket.sla_breached == 1)
+    if mid is not None:
+        breached_q = breached_q.filter(Ticket.merchant_id == mid)
+    breached = breached_q.count()
     return ok({"total": total, "pending": pending, "in_progress": in_progress,
                "waiting_customer": waiting, "resolved_today": resolved_today, "sla_breached": breached})
 
 
 @router.get("/live-monitor")
-def live_monitor(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def live_monitor(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     mid = current.merchant_id
     shop_ids = _shop_ids(db, mid)
 
-    users = db.query(MerchantUser).filter(MerchantUser.merchant_id == mid, MerchantUser.status == 1).all()
+    users_q = db.query(MerchantUser).filter(MerchantUser.status == 1)
+    if mid is not None:
+        users_q = users_q.filter(MerchantUser.merchant_id == mid)
+    users = users_q.all()
     agents = []
     for u in users:
         active_convs = db.query(Conversation).filter(
@@ -186,9 +228,10 @@ def live_monitor(current: CurrentUser = Depends(get_current_merchant), db: Sessi
         Conversation.shop_id.in_(shop_ids) if shop_ids else False,
         Conversation.handled_status == "pending", Conversation.assigned_to.is_(None),
     ).count()
-    queue_tickets = db.query(Ticket).filter(
-        Ticket.merchant_id == mid, Ticket.status == "pending", Ticket.assigned_to.is_(None),
-    ).count()
+    queue_tickets_q = db.query(Ticket).filter(Ticket.status == "pending", Ticket.assigned_to.is_(None))
+    if mid is not None:
+        queue_tickets_q = queue_tickets_q.filter(Ticket.merchant_id == mid)
+    queue_tickets = queue_tickets_q.count()
 
     return ok({
         "agents": agents,
@@ -198,14 +241,15 @@ def live_monitor(current: CurrentUser = Depends(get_current_merchant), db: Sessi
 
 
 @router.get("/ticket-trend")
-def ticket_trend(range: str = Query("week"), current: CurrentUser = Depends(require_roles("admin", "manager")),
+def ticket_trend(range: str = Query("week"), current: CurrentUser = Depends(get_current_user),
                  db: Session = Depends(get_db)):
     days = {"day": 1, "week": 7, "month": 30}.get(range, 7)
     since = datetime.now() - timedelta(days=days)
     fmt = "%Y-%m-%d %H:00" if range == "day" else "%Y-%m-%d"
     group = func.date_format(Ticket.created_at, fmt)
-    rows = db.query(group, func.count()).filter(
-        Ticket.merchant_id == current.merchant_id, Ticket.created_at >= since
-    ).group_by(group).order_by(group).all()
+    q = db.query(group, func.count()).filter(Ticket.created_at >= since)
+    if current.merchant_id is not None:
+        q = q.filter(Ticket.merchant_id == current.merchant_id)
+    rows = q.group_by(group).order_by(group).all()
     points = [{"date": r[0], "count": r[1]} for r in rows]
     return ok({"range": range, "points": points})

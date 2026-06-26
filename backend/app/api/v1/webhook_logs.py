@@ -1,8 +1,8 @@
-"""Webhook 投递日志接口"""
+"""Webhook 投递日志接口（平台端：跨租户查看）"""
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, require_roles
+from app.api.v1.dependencies import CurrentUser, get_platform_user
 from app.core.response import ok, page
 from app.database.session import get_db
 from app.models.webhook_delivery_log import WebhookDeliveryLog
@@ -14,12 +14,13 @@ router = APIRouter(prefix="/webhook-logs", tags=["Webhook日志"])
 def list_logs(
     page_no: int = Query(1, alias="page"), page_size: int = Query(20),
     event_type: str = Query(None), status: str = Query(None),
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    merchant_id: int = Query(None),
+    current: CurrentUser = Depends(get_platform_user),
     db: Session = Depends(get_db),
 ):
-    q = db.query(WebhookDeliveryLog).filter(
-        WebhookDeliveryLog.merchant_id == current.merchant_id
-    )
+    q = db.query(WebhookDeliveryLog)
+    if merchant_id:
+        q = q.filter(WebhookDeliveryLog.merchant_id == merchant_id)
     if event_type:
         q = q.filter(WebhookDeliveryLog.event_type == event_type)
     if status:
@@ -37,12 +38,11 @@ def list_logs(
 @router.post("/{log_id}/retry")
 def retry_delivery(
     log_id: int,
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    current: CurrentUser = Depends(get_platform_user),
     db: Session = Depends(get_db),
 ):
     log = db.query(WebhookDeliveryLog).filter(
         WebhookDeliveryLog.id == log_id,
-        WebhookDeliveryLog.merchant_id == current.merchant_id,
     ).first()
     if not log:
         return ok(None, msg="记录不存在")

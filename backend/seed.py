@@ -30,6 +30,7 @@ from app.models.conversation import Conversation
 from app.models.external_order import ExternalOrder
 from app.models.external_product import ExternalProduct
 from app.models.merchant import Merchant
+from app.models.platform_user import PlatformUser
 from app.models.merchant_user import MerchantUser
 from app.models.platform_shop import PlatformShop
 
@@ -59,6 +60,34 @@ USERS = [
     {"username": "manager", "display_name": "运营经理", "role": "manager"},
     {"username": "service", "display_name": "客服小美", "role": "service"},
 ]
+
+
+PLATFORM_USERS = [
+    {"username": "super_admin", "display_name": "平台超级管理员", "role": "super_admin", "password": "123456"},
+    {"username": "platform_manager", "display_name": "平台运营经理", "role": "manager", "password": "123456"},
+]
+
+
+def seed_platform_users(db):
+    """幂等创建平台运营账号。"""
+    created = 0
+    for u in PLATFORM_USERS:
+        exist = db.query(PlatformUser).filter(PlatformUser.username == u["username"]).first()
+        if not exist:
+            db.add(PlatformUser(
+                username=u["username"],
+                password_hash=hash_password(u["password"]),
+                display_name=u["display_name"],
+                role=u["role"],
+                status=1,
+            ))
+            created += 1
+    if created:
+        db.flush()
+        print(f"  平台账号: 新增 {created} 个")
+    else:
+        print(f"  平台账号: 已存在（幂等跳过）")
+    return [u["username"] for u in PLATFORM_USERS]
 
 
 def seed_multi_merchants(db) -> list:
@@ -302,6 +331,9 @@ async def seed():
             db.query(Merchant).filter(Merchant.id == em.id).delete()
         db.commit()
 
+        seed_platform_users(db)  # 幂等创建平台运营账号
+        db.commit()
+
         merchant_entries = seed_multi_merchants(db)
 
         for mid, cfg in merchant_entries:
@@ -410,7 +442,8 @@ async def seed():
         print("  商户1「数码旗舰商户」已绑定 vmall merchant01")
         print("  商户2「时尚女装商户」已绑定 vmall merchant02")
         print("  商户3「潮流美妆商户」待绑定 (idle)")
-        print("  登录: admin/123456 (每个商户独立登录)")
+        print("  商户登录: admin/123456 (每个商户独立登录)")
+        print("  平台登录: super_admin/123456 (管理后台 :8093)")
 
         if "--backfill" in sys.argv or "--full" in sys.argv:
             full = "--full" in sys.argv

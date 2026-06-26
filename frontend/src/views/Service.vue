@@ -230,22 +230,50 @@ async function convertToTicket() {
   } catch { /* error shown */ }
 }
 
+let wsReconnectTimer = null
+
 function setupWS() {
   const token = auth.token
-  ws = new WebSocket(`ws://${location.host}/ws/service?token=${token}`)
-  ws.onopen = () => console.log('[WS] connected')
-  ws.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      if (data.type === 'new_conversation' || data.type === 'new_message') fetchList()
-    } catch { /* ignore */ }
+  if (!token) {
+    // 未登录时不建立 WebSocket 连接
+    console.log('[WS] no token, skipping WebSocket')
+    return
   }
-  ws.onclose = () => { setTimeout(setupWS, 5000) }
+  try {
+    // 关闭旧连接
+    if (ws) { try { ws.close() } catch { /* */ } }
+    ws = new WebSocket(`ws://${location.host}/ws/service?token=${token}`)
+    ws.onopen = () => console.log('[WS] connected')
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data)
+        if (data.type === 'new_conversation' || data.type === 'new_message') fetchList()
+      } catch { /* ignore */ }
+    }
+    ws.onerror = (e) => {
+      console.warn('[WS] connection error, will retry in 10s')
+    }
+    ws.onclose = (e) => {
+      console.log('[WS] closed, code:', e.code)
+      // 非正常关闭时 10 秒后重连
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
+      wsReconnectTimer = setTimeout(setupWS, 10000)
+    }
+  } catch (e) {
+    console.warn('[WS] setup failed:', e.message)
+    // 10 秒后重试
+    if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = setTimeout(setupWS, 10000)
+  }
 }
 
 onMounted(async () => {
   fetchList(); setupWS(); pollTimer = setInterval(fetchList, 3000)
 })
 function handleExportConvs() { exportCSV('conversations') }
-onUnmounted(() => { if (ws) ws.close(); if (pollTimer) clearInterval(pollTimer) })
+onUnmounted(() => {
+  if (wsReconnectTimer) clearTimeout(wsReconnectTimer)
+  if (ws) { try { ws.close() } catch { /* */ } }
+  if (pollTimer) clearInterval(pollTimer)
+})
 </script>

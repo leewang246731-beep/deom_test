@@ -26,7 +26,7 @@ cd ../frontend_admin && npm install && npm run dev
 | 角色 | 账号 | 密码 |
 |------|------|------|
 | 买家 | buyer_test | 123456 |
-| 商户 | merchant_test | 123456 |
+| 商户 | merchant01 | 123456 |
 | 管理员 | admin_vmall | 123456 |
 
 ---
@@ -59,7 +59,7 @@ cd ../frontend_admin && npm install && npm run dev
 
 | 页面 | 路由 | 功能 |
 |------|------|------|
-| 登录 | /login | merchant_test / 123456 |
+| 登录 | /login | merchant01 / 123456 |
 | 看板 | /dashboard | 商户数据概览 |
 | 商品管理 | /products | 商品列表 + 搜索 |
 | 商品编辑 | /products/new / :id | 创建/编辑商品 |

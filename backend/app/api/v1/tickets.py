@@ -20,6 +20,11 @@ from app.models.ticket import Ticket
 from app.models.ticket_assignment import TicketAssignment
 from app.models.ticket_category import TicketCategory
 from app.models.ticket_comment import TicketComment
+from app.schemas import (
+    TicketCreate, TicketUpdate, TicketStatusUpdate, TicketAssign,
+    TicketCommentCreate, TicketCategoryCreate, TicketCategoryUpdate,
+    TicketBatchOperation, TicketAutoClassifyRequest,
+)
 
 router = APIRouter(prefix="/tickets", tags=["工单管理"])
 
@@ -86,30 +91,39 @@ def list_tickets(
 
 
 @router.post("")
-def create_ticket(body: dict, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    """创建工单。必填: title, source。 可选: description, priority, category_id, source_id, buyer_openid。"""
-    title = body.get("title")
-    if not title:
-        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "工单标题不能为空"})
-    source = body.get("source", "manual")
+def create_ticket(body: TicketCreate, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    """创建工单。必填: title。可选: description, priority, category_id, source_id, buyer_openid, ticket_tags。"""
+    # 分类存在性校验（防止 FK 违规导致 500）
+    if body.category_id is not None:
+        cat = db.query(TicketCategory).filter(
+            TicketCategory.id == body.category_id,
+            TicketCategory.merchant_id == current.merchant_id,
+        ).first()
+        if not cat:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": 40001, "msg": f"工单分类不存在: {body.category_id}"},
+            )
+
     ticket_no = _gen_ticket_no(db, current.merchant_id)
     t = Ticket(
         merchant_id=current.merchant_id, ticket_no=ticket_no,
-        title=title, description=body.get("description", ""),
-        priority=body.get("priority", "P3"), source=source,
-        source_id=body.get("source_id"), buyer_openid=body.get("buyer_openid"),
-        category_id=body.get("category_id"), created_by=current.user_id,
-        ticket_tags=body.get("ticket_tags"),
+        title=body.title, description=body.description or "",
+        priority=body.priority or "P3", source=body.source or "manual",
+        source_id=body.source_id, buyer_openid=body.buyer_openid,
+        category_id=body.category_id, created_by=current.user_id,
+        ticket_tags=body.ticket_tags,
     )
     db.add(t)
     db.flush()
     # 分配日志
     db.add(TicketAssignment(ticket_id=t.id, action="created", to_user_id=current.user_id))
-    # 智能分配：尝试自动路由
-    try:
-        _auto_assign(db, current.merchant_id, t)
-    except Exception:
-        pass
+    # 智能分配：仅在分类有效时尝试
+    if body.category_id is not None:
+        try:
+            _auto_assign(db, current.merchant_id, t)
+        except Exception:
+            pass
     db.commit()
     return ok({"id": t.id, "ticket_no": t.ticket_no}, msg="工单已创建")
 
@@ -140,6 +154,116 @@ def export_tickets(
                              headers={"Content-Disposition": "attachment; filename=tickets.csv"})
 
 
+# ---- 分类树（必须在 /{ticket_id} 之前，防止 "categories" 被当作 ticket_id） ----
+@router.get("/categories")
+def list_categories(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    cats = db.query(TicketCategory).filter(
+        TicketCategory.merchant_id == current.merchant_id
+    ).order_by(TicketCategory.level, TicketCategory.sort_order).all()
+
+    def build(parent_id=None):
+        return [{"id": c.id, "name": c.name, "level": c.level,
+                 "children": build(c.id)} for c in cats if c.parent_id == parent_id]
+    return ok(build())
+
+
+@router.post("/categories")
+def create_category(
+    body: TicketCategoryCreate,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    cat = TicketCategory(
+        merchant_id=current.merchant_id,
+        name=body.name,
+        parent_id=body.parent_id,
+        level=2 if body.parent_id else 1,
+    )
+    db.add(cat)
+    db.commit()
+    db.refresh(cat)
+    return ok({"id": cat.id, "name": cat.name, "level": cat.level}, msg="分类已创建")
+
+
+@router.put("/categories/{cat_id}")
+def update_category(
+    cat_id: int,
+    body: TicketCategoryUpdate,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    cat = db.query(TicketCategory).filter(
+        TicketCategory.id == cat_id,
+        TicketCategory.merchant_id == current.merchant_id,
+    ).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
+    if body.name is not None:
+        cat.name = body.name
+    db.commit()
+    return ok({"id": cat.id, "name": cat.name}, msg="分类已更新")
+
+
+@router.delete("/categories/{cat_id}")
+def delete_category(
+    cat_id: int,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    cat = db.query(TicketCategory).filter(
+        TicketCategory.id == cat_id,
+        TicketCategory.merchant_id == current.merchant_id,
+    ).first()
+    if not cat:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
+    children = db.query(TicketCategory).filter(TicketCategory.parent_id == cat_id).count()
+    if children:
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "请先删除子分类"})
+    db.delete(cat)
+    db.commit()
+    return ok(None, msg="分类已删除")
+
+
+# ---- 预分类 / 批量（必须在 /{ticket_id} 之前） ----
+@router.post("/auto-classify")
+def auto_classify_create(body: TicketAutoClassifyRequest, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+    """创建前预分类：给定标题+描述，返回 AI 建议的分类和优先级。"""
+    from app.services.ticket_ai import classify_ticket
+    return ok(classify_ticket(db, current.merchant_id, body.title, body.description or ""))
+
+
+@router.post("/batch")
+def batch_operation(
+    body: TicketBatchOperation,
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+    db: Session = Depends(get_db),
+):
+    """批量操作工单: { action: "assign"|"close", ticket_ids: [...], to_user_id?: int }"""
+    if not body.ticket_ids:
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "请提供 ticket_ids"})
+    tickets = db.query(Ticket).filter(
+        Ticket.id.in_(body.ticket_ids), Ticket.merchant_id == current.merchant_id
+    ).all()
+    if not tickets:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "未找到工单"})
+    if body.action == "assign":
+        to_uid = body.to_user_id or current.user_id
+        for t in tickets:
+            t.assigned_to = to_uid
+            if t.status == "pending":
+                t.status = "in_progress"
+        db.commit()
+        return ok({"count": len(tickets)}, msg=f"已分配 {len(tickets)} 个工单")
+    elif body.action == "close":
+        for t in tickets:
+            t.status = "closed"
+            t.closed_at = datetime.now()
+        db.commit()
+        return ok({"count": len(tickets)}, msg=f"已关闭 {len(tickets)} 个工单")
+    raise HTTPException(status_code=400, detail={"code": 40002, "msg": "action 必须为 assign 或 close"})
+
+
+# ---- 单个工单操作（参数化路由放在最后） ----
 @router.get("/{ticket_id}")
 def ticket_detail(ticket_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
     t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
@@ -172,29 +296,30 @@ def ticket_detail(ticket_id: int, current: CurrentUser = Depends(get_current_mer
 
 
 @router.put("/{ticket_id}")
-def update_ticket(ticket_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant),
+def update_ticket(ticket_id: int, body: TicketUpdate, current: CurrentUser = Depends(get_current_merchant),
                   db: Session = Depends(get_db)):
     t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
     for field in ("title", "description", "priority", "category_id", "ticket_tags"):
-        if field in body:
-            setattr(t, field, body[field])
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(t, field, val)
     db.commit()
     return ok({"id": t.id}, msg="已更新")
 
 
 @router.post("/{ticket_id}/status")
-def update_status(ticket_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant),
+def update_status(ticket_id: int, body: TicketStatusUpdate, current: CurrentUser = Depends(get_current_merchant),
                   db: Session = Depends(get_db)):
     t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
-    new_status = body.get("status")
+    new_status = body.status
     if new_status not in VALID_TRANSITIONS.get(t.status, []):
         raise HTTPException(status_code=400, detail={
-            "code": 40001, "msg": f"""不允许从 {t.status} 转到 {new_status}"""})
-    if new_status == "closed" and not body.get("resolved_notes") and not t.resolved_notes:
+            "code": 40001, "msg": f"不允许从 {t.status} 转到 {new_status}"})
+    if new_status == "closed" and not body.resolved_notes and not t.resolved_notes:
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "关闭工单需填写处理纪要"})
 
     # SLA pause/resume
@@ -208,29 +333,29 @@ def update_status(ticket_id: int, body: dict, current: CurrentUser = Depends(get
     t.status = new_status
     if new_status == "resolved":
         t.resolved_at = now
-        if body.get("resolved_notes"):
-            t.resolved_notes = body["resolved_notes"]
+        if body.resolved_notes:
+            t.resolved_notes = body.resolved_notes
     elif new_status == "closed":
         t.closed_at = now
-        if body.get("resolved_notes"):
-            t.resolved_notes = body["resolved_notes"]
+        if body.resolved_notes:
+            t.resolved_notes = body.resolved_notes
     db.commit()
     return ok({"id": t.id, "status": t.status}, msg="状态已更新")
 
 
 @router.post("/{ticket_id}/assign")
-def assign_ticket(ticket_id: int, body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def assign_ticket(ticket_id: int, body: TicketAssign, current: CurrentUser = Depends(require_roles("admin", "manager")),
                   db: Session = Depends(get_db)):
     t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
-    to_id = body.get("to_user_id")
+    to_id = body.to_user_id
     user = db.query(MerchantUser).filter(MerchantUser.id == to_id,
                                           MerchantUser.merchant_id == current.merchant_id).first()
     if not user:
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "目标用户不存在"})
     db.add(TicketAssignment(ticket_id=ticket_id, from_user_id=t.assigned_to, to_user_id=to_id,
-                             action="reassigned", remark=body.get("remark", "")))
+                             action="reassigned", remark=body.remark or ""))
     t.assigned_to = to_id
     if t.status == "pending":
         t.status = "in_progress"
@@ -276,13 +401,6 @@ def auto_summarize(ticket_id: int, current: CurrentUser = Depends(get_current_me
     return ok({"summary": summary})
 
 
-@router.post("/auto-classify")
-def auto_classify_create(body: dict, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    """创建前预分类：给定标题+描述，返回 AI 建议的分类和优先级。"""
-    from app.services.ticket_ai import classify_ticket
-    return ok(classify_ticket(db, current.merchant_id, body.get("title", ""), body.get("description", "")))
-
-
 # ---- 评论 ----
 @router.get("/{ticket_id}/comments")
 def list_comments(ticket_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
@@ -297,86 +415,16 @@ def list_comments(ticket_id: int, current: CurrentUser = Depends(get_current_mer
 
 
 @router.post("/{ticket_id}/comments")
-def add_comment(ticket_id: int, body: dict, current: CurrentUser = Depends(get_current_merchant),
+def add_comment(ticket_id: int, body: TicketCommentCreate, current: CurrentUser = Depends(get_current_merchant),
                 db: Session = Depends(get_db)):
     t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
-    c = TicketComment(ticket_id=ticket_id, user_id=current.user_id, content=body["content"],
-                      is_internal=body.get("is_internal", 0), attachments=body.get("attachments"))
+    c = TicketComment(ticket_id=ticket_id, user_id=current.user_id, content=body.content,
+                      is_internal=body.is_internal or 0, attachments=body.attachments)
     db.add(c)
     db.commit()
     return ok({"id": c.id}, msg="已添加")
-
-
-# ---- 分类树 ----
-@router.get("/categories")
-def list_categories(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    cats = db.query(TicketCategory).filter(
-        TicketCategory.merchant_id == current.merchant_id
-    ).order_by(TicketCategory.level, TicketCategory.sort_order).all()
-
-    def build(parent_id=None):
-        return [{"id": c.id, "name": c.name, "level": c.level,
-                 "children": build(c.id)} for c in cats if c.parent_id == parent_id]
-    return ok(build())
-
-
-@router.post("/categories")
-def create_category(
-    body: dict,
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
-):
-    cat = TicketCategory(
-        merchant_id=current.merchant_id,
-        name=body["name"],
-        parent_id=body.get("parent_id"),
-        level=2 if body.get("parent_id") else 1,
-    )
-    db.add(cat)
-    db.commit()
-    db.refresh(cat)
-    return ok({"id": cat.id, "name": cat.name, "level": cat.level}, msg="分类已创建")
-
-
-@router.put("/categories/{cat_id}")
-def update_category(
-    cat_id: int,
-    body: dict,
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
-):
-    cat = db.query(TicketCategory).filter(
-        TicketCategory.id == cat_id,
-        TicketCategory.merchant_id == current.merchant_id,
-    ).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
-    if "name" in body:
-        cat.name = body["name"]
-    db.commit()
-    return ok({"id": cat.id, "name": cat.name}, msg="分类已更新")
-
-
-@router.delete("/categories/{cat_id}")
-def delete_category(
-    cat_id: int,
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
-):
-    cat = db.query(TicketCategory).filter(
-        TicketCategory.id == cat_id,
-        TicketCategory.merchant_id == current.merchant_id,
-    ).first()
-    if not cat:
-        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
-    children = db.query(TicketCategory).filter(TicketCategory.parent_id == cat_id).count()
-    if children:
-        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "请先删除子分类"})
-    db.delete(cat)
-    db.commit()
-    return ok(None, msg="分类已删除")
 
 
 # ---- AI 话术 ----
@@ -389,39 +437,6 @@ def ticket_ai_suggest(ticket_id: int, current: CurrentUser = Depends(get_current
     from app.services.ticket_ai import suggest_ticket_reply
     suggestions = suggest_ticket_reply(current.merchant_id, t.title, t.description or "", t.status)
     return ok({"suggestions": suggestions})
-
-
-@router.post("/batch")
-def batch_operation(
-    body: dict,
-    current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
-):
-    """批量操作工单: { action: "assign"|"close", ticket_ids: [...], to_user_id?: int }"""
-    ids = body.get("ticket_ids", [])
-    if not ids or not isinstance(ids, list):
-        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "请提供 ticket_ids"})
-    tickets = db.query(Ticket).filter(
-        Ticket.id.in_(ids), Ticket.merchant_id == current.merchant_id
-    ).all()
-    if not tickets:
-        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "未找到工单"})
-    action = body.get("action")
-    if action == "assign":
-        to_uid = body.get("to_user_id", current.user_id)
-        for t in tickets:
-            t.assigned_to = to_uid
-            if t.status == "pending":
-                t.status = "in_progress"
-        db.commit()
-        return ok({"count": len(tickets)}, msg=f"已分配 {len(tickets)} 个工单")
-    elif action == "close":
-        for t in tickets:
-            t.status = "closed"
-            t.closed_at = datetime.now()
-        db.commit()
-        return ok({"count": len(tickets)}, msg=f"已关闭 {len(tickets)} 个工单")
-    raise HTTPException(status_code=400, detail={"code": 40002, "msg": "action 必须为 assign 或 close"})
 
 
 # ===== 内部：智能分配引擎 =====

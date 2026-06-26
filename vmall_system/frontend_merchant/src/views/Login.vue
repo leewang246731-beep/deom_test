@@ -38,8 +38,8 @@ async function handleLogin() {
   if (!valid) return
   loading.value = true
   try {
-    const data = await merchantLogin(form.username, form.password)
-    store.login(data)
+    const res = await merchantLogin(form.username, form.password)
+    store.login(res.data)
     router.push('/dashboard')
   } catch {
     // handled by interceptor

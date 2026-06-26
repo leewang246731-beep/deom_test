@@ -8,6 +8,7 @@ from app.database.session import get_db
 from app.models.merchant_user import MerchantUser
 from app.models.skill_group import SkillGroup, SkillMember
 from app.models.ticket import Ticket
+from app.schemas import SkillGroupCreate, SkillGroupUpdate, SkillMemberAdd
 
 router = APIRouter(prefix="/skill-groups", tags=["技能组"])
 
@@ -33,25 +34,26 @@ def list_groups(current: CurrentUser = Depends(get_current_merchant), db: Sessio
 
 
 @router.post("")
-def create_group(body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def create_group(body: SkillGroupCreate, current: CurrentUser = Depends(require_roles("admin", "manager")),
                  db: Session = Depends(get_db)):
-    g = SkillGroup(merchant_id=current.merchant_id, name=body["name"],
-                    description=body.get("description", ""))
+    g = SkillGroup(merchant_id=current.merchant_id, name=body.name,
+                    description=body.description or "")
     db.add(g)
     db.commit()
     return ok({"id": g.id}, msg="已创建")
 
 
 @router.put("/{group_id}")
-def update_group(group_id: int, body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def update_group(group_id: int, body: SkillGroupUpdate, current: CurrentUser = Depends(require_roles("admin", "manager")),
                  db: Session = Depends(get_db)):
     g = db.query(SkillGroup).filter(SkillGroup.id == group_id,
                                      SkillGroup.merchant_id == current.merchant_id).first()
     if not g:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
     for field in ("name", "description", "is_active"):
-        if field in body:
-            setattr(g, field, body[field])
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(g, field, val)
     db.commit()
     return ok({"id": g.id}, msg="已更新")
 
@@ -70,18 +72,18 @@ def delete_group(group_id: int, current: CurrentUser = Depends(require_roles("ad
 
 
 @router.post("/{group_id}/members")
-def add_member(group_id: int, body: dict, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def add_member(group_id: int, body: SkillMemberAdd, current: CurrentUser = Depends(require_roles("admin", "manager")),
                db: Session = Depends(get_db)):
     g = db.query(SkillGroup).filter(SkillGroup.id == group_id,
                                      SkillGroup.merchant_id == current.merchant_id).first()
     if not g:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
-    uid = body["user_id"]
+    uid = body.user_id
     u = db.query(MerchantUser).filter(MerchantUser.id == uid,
                                        MerchantUser.merchant_id == current.merchant_id).first()
     if not u:
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "用户不存在"})
-    tags = body.get("skill_tags", [])
+    tags = body.skill_tags or []
     tag_str = "，".join(tags) if isinstance(tags, list) else tags
     m = db.query(SkillMember).filter(SkillMember.group_id == group_id,
                                       SkillMember.user_id == uid).first()

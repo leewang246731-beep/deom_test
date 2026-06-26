@@ -48,8 +48,9 @@ const routes = [
 const router = createRouter({ history: createWebHashHistory(), routes })
 
 router.beforeEach((to) => {
-  const token = localStorage.getItem('token')
-  const userStr = localStorage.getItem('user')
+  // 管理后台仅认平台 token
+  const token = localStorage.getItem('platform_token')
+  const userStr = localStorage.getItem('platform_user')
   let user = null
   try { user = JSON.parse(userStr) } catch { /* */ }
 
@@ -60,8 +61,7 @@ router.beforeEach((to) => {
 
   if (!token) return '/login'
 
-  // Admin portal: block non-admin/manager users
-  const allowed = ['admin', 'manager']
+  const allowed = ['super_admin', 'manager']
   if (!allowed.includes(user?.role)) {
     return '/login'
   }
