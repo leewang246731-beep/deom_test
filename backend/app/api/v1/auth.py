@@ -4,9 +4,11 @@
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
+from app.core.redis_client import get_redis
 from app.core.response import ok
 from app.core.security import (
     create_access_token,
@@ -26,8 +28,28 @@ ALLOWED_ROLES = {"admin", "manager", "service"}
 PLATFORM_ROLES = {"super_admin", "manager"}
 
 
+def _check_login_rate(request: Request):
+    """登录频率限制：每 IP 每分钟最多 N 次。"""
+    try:
+        r = get_redis()
+        ip = request.client.host if request.client else "unknown"
+        key = f"rate:login:{ip}"
+        count = r.incr(key)
+        if count == 1:
+            r.expire(key, settings.LOGIN_RATE_WINDOW)
+        if count > settings.LOGIN_RATE_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail={"code": 42901, "msg": f"登录尝试过于频繁，请 {settings.LOGIN_RATE_WINDOW} 秒后重试"},
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Redis 不可用时放行
+
+
 @router.post("/login")
-def login(body: LoginRequest, db: Session = Depends(get_db)):
+def login(body: LoginRequest, db: Session = Depends(get_db), _rate: None = Depends(_check_login_rate)):
     q = db.query(MerchantUser).filter(MerchantUser.username == body.username)
     if body.merchant_id is not None:
         q = q.filter(MerchantUser.merchant_id == body.merchant_id)
@@ -74,7 +96,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/platform/login")
-def platform_login(body: LoginRequest, db: Session = Depends(get_db)):
+def platform_login(body: LoginRequest, db: Session = Depends(get_db), _rate: None = Depends(_check_login_rate)):
     """平台运营账号登录（无 merchant_id，跨租户查看所有商户数据）。"""
     user = db.query(PlatformUser).filter(PlatformUser.username == body.username).first()
     if not user or not verify_password(body.password, user.password_hash):

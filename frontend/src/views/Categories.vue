@@ -44,7 +44,7 @@ const form = ref({ name: '', parent_id: null })
 const parentName = ref('')
 
 async function fetch() {
-  try { const res = await getCategories(); tree.value = res.data || [] } catch { /* ok */ }
+  try { const res = await getCategories(); tree.value = res.data || [] } catch { tree.value = [] }
 }
 
 function openAdd(parent) {
@@ -63,18 +63,20 @@ function openEdit(data) {
 
 async function handleSave() {
   if (!form.value.name.trim()) return ElMessage.warning('请输入分类名称')
-  if (isEdit.value) {
-    await updateCategory(editCatId.value, { name: form.value.name })
-    ElMessage.success('已更新')
-  } else {
-    await createCategory({ name: form.value.name, parent_id: form.value.parent_id || undefined })
-    ElMessage.success('已创建')
-  }
-  showDialog.value = false; fetch()
+  try {
+    if (isEdit.value) {
+      await updateCategory(editCatId.value, { name: form.value.name })
+      ElMessage.success('分类已更新')
+    } else {
+      await createCategory({ name: form.value.name, parent_id: form.value.parent_id || undefined })
+      ElMessage.success('分类已创建')
+    }
+    showDialog.value = false; fetch()
+  } catch { /* error shown by interceptor */ }
 }
 
 async function handleDelete(data) {
-  await ElMessageBox.confirm(`确定删除分类"${data.name}"？`, '提示', { type: 'warning' })
+  try { await ElMessageBox.confirm(`确定删除分类"${data.name}"？`, '提示', { type: 'warning' }) } catch { return }
   try { await deleteCategory(data.id); ElMessage.success('已删除'); fetch() } catch { /* error shown by interceptor */ }
 }
 

@@ -1,0 +1,285 @@
+/* ============================================================
+   Element Plus Theme Overrides
+   全局覆盖 Element Plus CSS 变量以匹配设计令牌
+   ============================================================ */
+
+:root {
+  /* ── Primary Color ── */
+  --el-color-primary: var(--color-brand);
+  --el-color-primary-light-3: var(--color-brand-light);
+  --el-color-primary-light-5: #7DADFF;
+  --el-color-primary-light-7: #ADC8FF;
+  --el-color-primary-light-8: #D0DFFF;
+  --el-color-primary-light-9: #E8F0FF;
+  --el-color-primary-dark-2: var(--color-brand-dark);
+
+  /* ── Functional Colors ── */
+  --el-color-success: var(--color-success);
+  --el-color-success-light-3: var(--color-success-light);
+  --el-color-success-light-5: #86EFAC;
+  --el-color-success-light-7: #BBF7D0;
+  --el-color-success-light-9: #DCFCE7;
+  --el-color-success-dark-2: #16A34A;
+
+  --el-color-warning: var(--color-warning);
+  --el-color-warning-light-3: var(--color-warning-light);
+  --el-color-warning-light-5: #FCD34D;
+  --el-color-warning-light-7: #FDE68A;
+  --el-color-warning-light-9: #FEF3C7;
+  --el-color-warning-dark-2: #D97706;
+
+  --el-color-danger: var(--color-danger);
+  --el-color-danger-light-3: var(--color-danger-light);
+  --el-color-danger-light-5: #FCA5A5;
+  --el-color-danger-light-7: #FECACA;
+  --el-color-danger-light-9: #FEE2E2;
+  --el-color-danger-dark-2: #DC2626;
+
+  --el-color-info: var(--color-info);
+  --el-color-info-light-3: #B0B3BB;
+  --el-color-info-light-5: #C8CBD2;
+  --el-color-info-light-7: #E0E2E8;
+  --el-color-info-light-9: #F0F1F4;
+
+  /* ── Typography ── */
+  --el-font-family: var(--font-family);
+  --el-font-size-base: var(--font-size-base);
+  --el-font-size-small: var(--font-size-sm);
+  --el-font-size-large: var(--font-size-md);
+  --el-font-size-extra-large: var(--font-size-xl);
+
+  /* ── Border Radius ── */
+  --el-border-radius-base: var(--radius-sm);
+  --el-border-radius-small: 4px;
+  --el-border-radius-round: var(--radius-lg);
+
+  /* ── Border Colors ── */
+  --el-border-color: var(--border-color);
+  --el-border-color-light: var(--border-light);
+  --el-border-color-lighter: var(--border-lighter);
+  --el-border-color-extra-light: #F7F8FA;
+
+  /* ── Background Colors ── */
+  --el-bg-color: var(--bg-main);
+  --el-bg-color-page: var(--bg-main);
+  --el-bg-color-overlay: var(--bg-card);
+  --el-fill-color: #F5F7FA;
+  --el-fill-color-light: #FAFAFA;
+  --el-fill-color-lighter: #FCFCFD;
+  --el-fill-color-blank: #FFFFFF;
+
+  /* ── Text Colors ── */
+  --el-text-color-primary: var(--text-primary);
+  --el-text-color-regular: var(--text-regular);
+  --el-text-color-secondary: var(--text-secondary);
+  --el-text-color-placeholder: var(--text-placeholder);
+  --el-text-color-disabled: var(--text-disabled);
+
+  /* ── Disabled State ── */
+  --el-disabled-bg-color: #F5F7FA;
+  --el-disabled-text-color: var(--text-disabled);
+  --el-disabled-border-color: var(--border-lighter);
+
+  /* ── Shadows ── */
+  --el-box-shadow-light: var(--shadow-normal);
+  --el-box-shadow: var(--shadow-hover);
+  --el-box-shadow-dark: var(--shadow-modal);
+}
+
+/* ── Menu (Sidebar) Overrides ── */
+.el-menu {
+  --el-menu-bg-color: var(--bg-sidebar);
+  --el-menu-hover-bg-color: var(--bg-sidebar-hover);
+  --el-menu-text-color: var(--text-sidebar);
+  --el-menu-active-color: var(--text-sidebar-active);
+  border-right: none !important;
+}
+
+.el-menu-item {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-normal);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.el-menu-item:hover {
+  background-color: var(--bg-sidebar-hover) !important;
+}
+
+.el-menu-item.is-active {
+  background-color: var(--bg-sidebar-active) !important;
+  font-weight: var(--font-weight-medium);
+}
+
+/* ── Card Overrides ── */
+.el-card {
+  border-radius: var(--radius-md) !important;
+  border: 1px solid var(--border-light) !important;
+  box-shadow: var(--shadow-normal);
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+
+.el-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ── Button Overrides ── */
+.el-button {
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+  transition: all var(--transition-fast);
+}
+
+.el-button--primary {
+  --el-button-bg-color: var(--color-brand);
+  --el-button-border-color: var(--color-brand);
+  --el-button-hover-bg-color: var(--color-brand-light);
+  --el-button-hover-border-color: var(--color-brand-light);
+  --el-button-active-bg-color: var(--color-brand-dark);
+}
+
+.el-button:active {
+  transform: scale(0.97);
+}
+
+/* ── Input Overrides ── */
+.el-input__wrapper {
+  border-radius: var(--radius-sm) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset;
+  transition: box-shadow var(--transition-fast);
+}
+
+.el-input__wrapper:hover {
+  box-shadow: 0 0 0 1px var(--color-brand) inset;
+}
+
+.el-input.is-focus .el-input__wrapper {
+  box-shadow: 0 0 0 1px var(--color-brand) inset, 0 0 0 2px var(--color-brand-bg) !important;
+}
+
+/* ── Select Overrides ── */
+.el-select .el-input__wrapper {
+  border-radius: var(--radius-sm) !important;
+}
+
+/* ── Table Overrides ── */
+.el-table {
+  --el-table-border-color: var(--border-light);
+  --el-table-header-bg-color: #FAFBFC;
+  --el-table-row-hover-bg-color: rgba(42, 107, 255, 0.03);
+  --el-table-current-row-bg-color: var(--color-brand-bg);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.el-table th.el-table__cell {
+  background-color: #FAFBFC;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  border-bottom: 2px solid var(--border-light);
+}
+
+/* ── Pagination Overrides ── */
+.el-pagination {
+  --el-pagination-button-bg-color: var(--bg-card);
+  --el-pagination-hover-color: var(--color-brand);
+}
+
+.el-pagination .el-pager li.is-active {
+  border-radius: var(--radius-sm);
+}
+
+/* ── Dialog Overrides ── */
+.el-dialog {
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-modal);
+}
+
+.el-dialog__header {
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.el-dialog__body {
+  padding: var(--space-lg);
+}
+
+.el-dialog__footer {
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  border-top: 1px solid var(--border-light);
+}
+
+/* ── Tag Overrides ── */
+.el-tag {
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-weight-medium);
+  border: none;
+}
+
+/* ── Tabs Overrides ── */
+.el-tabs__item {
+  font-weight: var(--font-weight-medium);
+}
+
+.el-tabs__active-bar {
+  background-color: var(--color-brand);
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+}
+
+/* ── Dropdown / Popover ── */
+.el-dropdown-menu, .el-popover {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-hover);
+}
+
+/* ── Empty / Alert mild improvements ── */
+.el-empty__description p {
+  color: var(--text-secondary);
+}
+
+/* ── Switch ── */
+.el-switch.is-checked .el-switch__core {
+  border-color: var(--color-brand);
+  background-color: var(--color-brand);
+}
+
+/* ── Checkbox / Radio ── */
+.el-checkbox__input.is-checked .el-checkbox__inner {
+  background-color: var(--color-brand);
+  border-color: var(--color-brand);
+}
+
+.el-radio__input.is-checked .el-radio__inner {
+  background-color: var(--color-brand);
+  border-color: var(--color-brand);
+}
+
+/* ── Date Picker ── */
+.el-date-table td.current:not(.disabled) .el-date-table-cell__text {
+  background-color: var(--color-brand);
+  border-radius: var(--radius-sm);
+}
+
+.el-date-table td.today .el-date-table-cell__text {
+  color: var(--color-brand);
+}
+
+/* ── Loading ── */
+.el-loading-spinner .circular circle {
+  stroke: var(--color-brand);
+}
+
+/* ── Badge ── */
+.el-badge__content {
+  border-radius: var(--radius-full);
+}
+
+/* ── Progress ── */
+.el-progress-bar__outer {
+  border-radius: var(--radius-full);
+}
+
+.el-progress-bar__inner {
+  border-radius: var(--radius-full);
+}

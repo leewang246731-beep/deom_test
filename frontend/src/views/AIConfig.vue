@@ -14,7 +14,7 @@
           </template>
           <p style="font-size:13px;margin:4px 0">语气: {{ s.tone || '-' }}</p>
           <p style="font-size:13px;margin:4px 0">开场: {{ (s.greeting || '-').slice(0, 30) }}{{ (s.greeting || '').length > 30 ? '...' : '' }}</p>
-          <p style="font-size:12px;color:#909399;margin:4px 0">{{ JSON.stringify(s.features || {}) }}</p>
+          <p style="font-size:12px;color:#909399;margin:4px 0">{{ fmtFeatures(s.features) }}</p>
           <div style="margin-top:8px;display:flex;gap:6px">
             <el-button size="small" @click="setDefault(s.id)" v-if="!s.is_default">设为默认</el-button>
             <el-button size="small" plain @click="openEdit(s)">编辑</el-button>
@@ -57,23 +57,28 @@ const showDialog = ref(false)
 const editId = ref(null)
 const form = reactive({ name: '', tone: '', greeting: '', features: { '长度': '适中', '表情': '适量', '促单': '温和' } })
 
-async function fetch() { try { const r = await getAIStyles(); styles.value = r.data || [] } catch { /* ok */ } }
+async function fetch() { try { const r = await getAIStyles(); styles.value = r.data || [] } catch { styles.value = [] } }
+function fmtFeatures(f) { if (!f) return '{}'; try { return JSON.stringify(f) } catch { return String(f) } }
 
 function openAdd() { editId.value = null; Object.assign(form, { name: '', tone: '', greeting: '', features: { '长度': '适中', '表情': '适量', '促单': '温和' } }); showDialog.value = true }
 
 function openEdit(s) { editId.value = s.id; Object.assign(form, { name: s.name, tone: s.tone || '', greeting: s.greeting || '', features: s.features || {} }); showDialog.value = true }
 
 async function handleSave() {
-  if (!form.name.trim()) return ElMessage.warning('请输入名称')
-  if (editId.value) { await updateAIStyle(editId.value, { ...form, style_key: 'custom' }) } else { await createAIStyle({ ...form, style_key: 'custom' }) }
-  ElMessage.success('已保存'); showDialog.value = false; fetch()
+  if (!form.name.trim()) return ElMessage.warning('请输入风格名称')
+  try {
+    if (editId.value) { await updateAIStyle(editId.value, { ...form, style_key: 'custom' }) } else { await createAIStyle({ ...form, style_key: 'custom' }) }
+    ElMessage.success('已保存'); showDialog.value = false; fetch()
+  } catch { /* error shown by interceptor */ }
 }
 
-async function setDefault(id) { await setDefaultStyle(id); ElMessage.success('已设为默认'); fetch() }
+async function setDefault(id) {
+  try { await setDefaultStyle(id); ElMessage.success('已设为默认'); fetch() } catch { /* error shown by interceptor */ }
+}
 
 async function handleDelete(s) {
-  await ElMessageBox.confirm('确定删除？', '提示', { type: 'warning' })
-  try { await deleteAIStyle(s.id); ElMessage.success('已删除'); fetch() } catch { /* ok */ }
+  try { await ElMessageBox.confirm('确定删除该AI风格？', '提示', { type: 'warning' }) } catch { return }
+  try { await deleteAIStyle(s.id); ElMessage.success('已删除'); fetch() } catch { /* error shown by interceptor */ }
 }
 
 onMounted(fetch)

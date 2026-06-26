@@ -1,0 +1,118 @@
+/* ============================================================
+   Design Tokens — Enterprise Office SaaS
+   专业、冷静、数据优先 的商业技术风
+   ============================================================ */
+
+:root {
+  /* ── Brand Colors ── */
+  --color-primary: #1E2A41;
+  --color-primary-light: #2A3A5C;
+  --color-brand: #2A6BFF;
+  --color-brand-light: #5B8DFF;
+  --color-brand-dark: #1A54E0;
+  --color-brand-bg: rgba(42, 107, 255, 0.08);
+  --color-brand-bg-hover: rgba(42, 107, 255, 0.12);
+
+  /* ── Functional Colors ── */
+  --color-success: #22C55E;
+  --color-success-light: #4ADE80;
+  --color-success-bg: rgba(34, 197, 94, 0.08);
+  --color-warning: #F59E0B;
+  --color-warning-light: #FBBF24;
+  --color-warning-bg: rgba(245, 158, 11, 0.08);
+  --color-danger: #EF4444;
+  --color-danger-light: #F87171;
+  --color-danger-bg: rgba(239, 68, 68, 0.08);
+  --color-info: #909399;
+
+  /* ── Backgrounds ── */
+  --bg-main: #F4F7FC;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #1E2A41;
+  --bg-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --bg-sidebar-active: rgba(42, 107, 255, 0.15);
+  --bg-header: rgba(255, 255, 255, 0.85);
+  --bg-header-solid: #FFFFFF;
+  --bg-overlay: rgba(0, 0, 0, 0.3);
+  --bg-mask: rgba(0, 0, 0, 0.45);
+
+  /* ── Text Colors ── */
+  --text-primary: #1F2937;
+  --text-regular: #4B5563;
+  --text-secondary: #909399;
+  --text-placeholder: #C0C4CC;
+  --text-disabled: #C0C4CC;
+  --text-inverse: #FFFFFF;
+  --text-sidebar: #B0BEC5;
+  --text-sidebar-active: #FFFFFF;
+
+  /* ── Border Colors ── */
+  --border-color: #E4E7ED;
+  --border-light: #EBEEF5;
+  --border-lighter: #F2F3F5;
+
+  /* ── Border Radius ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-round: 50%;
+  --radius-full: 9999px;
+
+  /* ── Shadows ── */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-normal: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-modal: 0 16px 48px rgba(0, 0, 0, 0.12);
+  --shadow-card-hover: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* ── Typography ── */
+  --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans SC", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* ── Transitions ── */
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Spacing ── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* ── Layout ── */
+  --sidebar-width: 220px;
+  --sidebar-collapsed-width: 64px;
+  --header-height: 56px;
+  --footer-height: 36px;
+
+  /* ── Z-Index Scale ── */
+  --z-particles: 0;
+  --z-content: 1;
+  --z-header: 100;
+  --z-sidebar: 200;
+  --z-dropdown: 500;
+  --z-overlay: 1000;
+  --z-modal: 2000;
+  --z-toast: 3000;
+  --z-cursor-glow: 9999;
+}

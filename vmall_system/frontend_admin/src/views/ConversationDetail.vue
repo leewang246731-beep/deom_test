@@ -7,7 +7,7 @@
     <el-card shadow="never" style="flex:1;display:flex;flex-direction:column" body-style="flex:1;overflow:auto;display:flex;flex-direction:column">
       <div style="flex:1;overflow-y:auto;margin-bottom:8px;min-height:0">
         <div v-for="m in msgs" :key="m.id" :style="{textAlign:m.sender_role==='admin'?'right':'left',marginBottom:'8px'}">
-          <div :style="{display:'inline-block',maxWidth:'60%',padding:'8px 14px',borderRadius:'8px',background:m.sender_role==='admin'?'#409eff':'#f0f0f0',color:m.sender_role==='admin'?'#fff':'#303133',fontSize:'14px'}">{{m.content_json?.text||JSON.stringify(m.content_json)}}</div>
+          <div :style="{display:'inline-block',maxWidth:'60%',padding:'8px 14px',borderRadius:'8px',background:m.sender_role==='admin'?'#409eff':'#f0f0f0',color:m.sender_role==='admin'?'#fff':'#303133',fontSize:'14px'}">{{m.content_json?.text||fmtContent(m.content_json)}}</div>
           <div style="font-size:11px;color:#c0c4cc;margin-top:2px">{{m.created_at?.slice(11,16)}}</div>
         </div>
       </div>
@@ -16,9 +16,10 @@
   </div>
 </template>
 <script setup>
-import { ref, onMounted, watch } from 'vue'; import { useRoute } from 'vue-router'; import { getConvMsgs, replyConv } from '../api'
+import { ref, onMounted, watch } from 'vue'; import { useRoute } from 'vue-router'; import { ArrowLeft } from '@element-plus/icons-vue'; import { getConvMsgs, replyConv } from '../api'
 const route = useRoute()
 const msgs = ref([]); const txt = ref('')
+function fmtContent(c) { try { return typeof c === 'string' ? c : JSON.stringify(c) } catch { return String(c || '') } }
 async function fetch() { try { msgs.value = (await getConvMsgs(route.params.id)).data || [] } catch { /* */ } }
 async function sendMsg() { if(!txt.value.trim()) return; await replyConv(route.params.id, { msg_type:'text', content:{text:txt.value} }); txt.value=''; await fetch() }
 watch(()=>route.params.id, fetch)

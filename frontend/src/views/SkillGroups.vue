@@ -6,6 +6,7 @@
     </div>
 
     <el-row :gutter="16" v-loading="loading">
+      <el-empty v-if="!loading && !groups.length" description="暂无技能组，请先创建" />
       <el-col :span="8" v-for="g in groups" :key="g.id">
         <el-card>
           <template #header>
@@ -73,7 +74,7 @@ const memberForm = reactive({ user_id: null, skill_tags: [] })
 
 async function fetch() {
   loading.value = true
-  try { groups.value = (await getSkillGroups()).data || [] } catch { /* */ }
+  try { groups.value = (await getSkillGroups()).data || [] } catch { groups.value = [] }
   finally { loading.value = false }
 }
 
@@ -82,25 +83,31 @@ function openEditGroup(g) { editGroupId.value = g.id; Object.assign(groupForm, {
 
 async function handleSaveGroup() {
   if (!groupForm.name.trim()) return ElMessage.warning('请输入名称')
-  const data = { name: groupForm.name, description: groupForm.description, is_active: groupForm.is_active ? 1 : 0 }
-  if (editGroupId.value) { await updateSkillGroup(editGroupId.value, data) } else { await createSkillGroup(data) }
-  ElMessage.success('已保存'); showGroupDialog.value = false; fetch()
+  try {
+    const data = { name: groupForm.name, description: groupForm.description, is_active: groupForm.is_active ? 1 : 0 }
+    if (editGroupId.value) { await updateSkillGroup(editGroupId.value, data) } else { await createSkillGroup(data) }
+    ElMessage.success('已保存'); showGroupDialog.value = false; fetch()
+  } catch { /* error shown by interceptor */ }
 }
 
 async function handleDeleteGroup(id) {
-  await ElMessageBox.confirm('确定删除？', '提示', { type: 'warning' })
-  try { await deleteSkillGroup(id); ElMessage.success('已删除'); fetch() } catch { /* */ }
+  try { await ElMessageBox.confirm('确定删除该技能组？', '提示', { type: 'warning' }) } catch { return }
+  try { await deleteSkillGroup(id); ElMessage.success('已删除'); fetch() } catch { /* error shown by interceptor */ }
 }
 
 function openAddMember(g) { addMemberGid.value = g.id; Object.assign(memberForm, { user_id: null, skill_tags: [] }); showMemberDialog.value = true }
 
 async function handleAddMember() {
   if (!memberForm.user_id) return ElMessage.warning('请选择客服')
-  await addSkillMember(addMemberGid.value, memberForm)
-  ElMessage.success('已添加'); showMemberDialog.value = false; fetch()
+  try {
+    await addSkillMember(addMemberGid.value, memberForm)
+    ElMessage.success('已添加'); showMemberDialog.value = false; fetch()
+  } catch { /* error shown by interceptor */ }
 }
 
-async function handleRemoveMember(gid, uid) { await removeSkillMember(gid, uid); ElMessage.success('已移除'); fetch() }
+async function handleRemoveMember(gid, uid) {
+  try { await removeSkillMember(gid, uid); ElMessage.success('已移除'); fetch() } catch { /* error shown by interceptor */ }
+}
 
 onMounted(async () => {
   fetch()

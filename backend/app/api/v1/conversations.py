@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user
 from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import SessionLocal, get_db
@@ -24,9 +24,11 @@ router = APIRouter(tags=["客服工作台"])
 ws_router = APIRouter(tags=["客服工作台-WS"])  # 无 /api/v1 前缀，挂根路径
 
 
-def _merchant_shop_ids(db: Session, merchant_id: int) -> list:
-    return [r[0] for r in db.query(PlatformShop.id).filter(
-        PlatformShop.merchant_id == merchant_id).all()]
+def _merchant_shop_ids(db: Session, merchant_id: int | None) -> list:
+    q = db.query(PlatformShop.id)
+    if merchant_id is not None:
+        q = q.filter(PlatformShop.merchant_id == merchant_id)
+    return [r[0] for r in q.all()]
 
 
 def _conv_brief(c: Conversation) -> dict:
@@ -48,11 +50,11 @@ def list_conversations(
     handled_status: str = Query(None),
     page_no: int = Query(1, alias="page"),
     page_size: int = Query(20),
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    if not shop_ids:
+    if not shop_ids and current.merchant_id is not None:
         return page([], 0, page_no, page_size)
     q = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids))
     if shop_id:
@@ -67,7 +69,7 @@ def list_conversations(
 @router.get("/conversations/export")
 def export_conversations(
     shop_id: int = Query(None), handled_status: str = Query(None),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     q = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids)) if shop_ids else db.query(Conversation).filter(False)
@@ -88,11 +90,11 @@ def export_conversations(
 
 
 @router.get("/conversations/{conv_id}")
-def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     c = db.query(Conversation).filter(
         Conversation.id == conv_id,
-        Conversation.shop_id.in_(shop_ids) if shop_ids else False,
+        Conversation.shop_id.in_(shop_ids) if shop_ids else True,
     ).first()
     if not c:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
@@ -141,13 +143,12 @@ def send_conversation_message(conv_id: int, body: ConversationMessageSend, curre
     if vmall_conv_id.startswith("vmall_"):
         vmall_conv_id = vmall_conv_id[len("vmall_"):]
     if vmall_conv_id and vmall_conv_id.isdigit():
-        vmall_url = c.shop and hasattr(c.shop, 'shop_url') and c.shop.shop_url or None
-        if not vmall_url:
-            try:
-                shop = db.query(PlatformShop).filter(PlatformShop.id == c.shop_id).first()
-                vmall_url = shop.shop_url if shop else None
-            except Exception:
-                vmall_url = None
+        vmall_url = None
+        try:
+            shop = db.query(PlatformShop).filter(PlatformShop.id == c.shop_id).first()
+            vmall_url = shop.shop_url if shop and shop.shop_url else None
+        except Exception:
+            pass
         if not vmall_url:
             vmall_url = "http://127.0.0.1:8020"
         target = f"{vmall_url}/api/v1/consumer/conversations/{vmall_conv_id}/messages/internal"

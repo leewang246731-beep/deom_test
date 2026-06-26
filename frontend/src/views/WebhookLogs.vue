@@ -42,7 +42,7 @@
       <el-table-column prop="created_at" label="时间" width="170" />
       <el-table-column label="操作" width="80" fixed="right">
         <template #default="{ row }">
-          <el-button v-if="row.status === 'failed'" size="small" text type="warning" @click="handleRetry(row.id)">重试</el-button>
+          <el-button v-if="row.status === 'failed'" size="small" text type="warning" :loading="retryingId === row.id" @click="handleRetry(row.id)">重试</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -58,6 +58,7 @@ import { ElMessage } from 'element-plus'
 
 const logs = ref([])
 const loading = ref(false)
+const retryingId = ref(null)
 const total = ref(0)
 const page = ref(1)
 const filters = reactive({ event_type: '', status: '' })
@@ -71,6 +72,9 @@ async function fetch() {
     const res = await getWebhookLogs(params)
     logs.value = res.data?.items || []
     total.value = res.data?.total || 0
+  } catch {
+    logs.value = []
+    total.value = 0
   } finally { loading.value = false }
 }
 
@@ -81,7 +85,14 @@ function resetFilters() {
 }
 
 async function handleRetry(id) {
-  try { await retryWebhook(id); ElMessage.success('已加入重试队列'); fetch() } catch {}
+  retryingId.value = id
+  try {
+    await retryWebhook(id)
+    ElMessage.success('已加入重试队列')
+    fetch()
+  } catch {
+    // error shown by interceptor
+  } finally { retryingId.value = null }
 }
 
 fetch()

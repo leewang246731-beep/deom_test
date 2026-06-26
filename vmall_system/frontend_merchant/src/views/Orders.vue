@@ -52,17 +52,17 @@ async function fetchData() {
     const data = await getOrders({ page: page.value, size: size.value })
     list.value = data.items || []
     total.value = data.total || 0
-  } catch { /* handled */ }
+  } catch { list.value = []; total.value = 0 }
   finally { loading.value = false }
 }
 
 async function handleShip(row) {
-  await ElMessageBox.confirm(`确认将订单#${row.id}标记为已发货？`, '提示', { type: 'info' })
+  try { await ElMessageBox.confirm(`确认将订单#${row.id}标记为已发货？`, '提示', { type: 'info' }) } catch { return }
   try {
     await shipOrder(row.id, { tracking_no: '' })
     ElMessage.success('已发货')
     fetchData()
-  } catch { /* handled */ }
+  } catch { /* error shown by interceptor */ }
 }
 
 onMounted(fetchData)

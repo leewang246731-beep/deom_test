@@ -1,5 +1,10 @@
 """
-LangChain Agent 工厂：langgraph create_react_agent。
+Multi-Agent System Entry Point — SaaS v2.1.0
+
+架构:
+  create_service_agent() → 传统单 ReAct Agent (向后兼容)
+  create_supervisor_agent() → Supervisor-Worker 多智能体 (NEW)
+  run_agent() → 统一执行入口 (自动选择模式)
 """
 from langgraph.prebuilt import create_react_agent
 from langchain_core.prompts import ChatPromptTemplate
@@ -8,24 +13,23 @@ from app.ai.tools import get_agent_tools
 from app.services.llm import ChatDashScope
 
 
+# ===== 传统单 Agent (向后兼容) =====
+
 def create_service_agent(merchant_id: int, role_prompt: str = ""):
-    """创建客服 Agent，绑定商户工具 + 角色 Prompt。"""
+    """创建传统单 ReAct Agent。保留向后兼容。"""
     llm = ChatDashScope()
     tools = get_agent_tools(merchant_id)
 
     system_prompt = (
         "你是专业电商客服助手，为客户提供准确、亲切的服务。"
         f"{role_prompt}\n"
-        "你有以下工具可用，遇到物流/订单/库存/售后问题时请主动调用：\n"
-        "- query_order(query): 查询订单状态。query 是订单号、订单ID或买家昵称\n"
-        "- check_logistics(tracking_no): 查询物流轨迹\n"
-        "- search_product_kb(query): 搜索商品信息\n"
-        "- check_inventory(product_id): 查询商品库存\n"
-        "- search_ticket_history(query): 搜索历史工单处理方案\n\n"
-        "规则：\n"
-        "1. 买家问物流/订单时，必须调用工具获取真实信息再回复\n"
-        "2. 回复语气亲切自然，每条不超过200字\n"
-        "3. 工具返回'未找到'时诚实告知，建议联系人工客服"
+        "你有以下工具可用:\n"
+        "- query_order(query): 查询订单\n"
+        "- check_logistics(tracking_no): 查询物流\n"
+        "- search_product_kb(query): 搜索商品\n"
+        "- check_inventory(product_id): 查库存\n"
+        "- search_ticket_history(query): 搜索工单\n\n"
+        "规则：必须调用工具获取真实数据。回复<200字。"
     )
 
     prompt = ChatPromptTemplate.from_messages([
@@ -33,16 +37,12 @@ def create_service_agent(merchant_id: int, role_prompt: str = ""):
         ("placeholder", "{messages}"),
     ])
 
-    return create_react_agent(
-        model=llm,
-        tools=tools,
-        prompt=prompt,
-    )
+    return create_react_agent(model=llm, tools=tools, prompt=prompt)
 
 
-def run_agent(agent, question: str, chat_history: list | None = None) -> dict:
-    """运行 Agent 并返回结构化结果。"""
-    from langchain_core.messages import HumanMessage
+def _run_legacy_agent(agent, question: str, chat_history: list | None = None) -> dict:
+    """运行传统单 Agent (内部)。"""
+    from langchain_core.messages import HumanMessage, AIMessage
 
     msgs = []
     if chat_history:
@@ -50,13 +50,11 @@ def run_agent(agent, question: str, chat_history: list | None = None) -> dict:
             if isinstance(item, tuple):
                 role, content = item
             elif isinstance(item, dict):
-                role = item.get("role", "user")
-                content = item.get("content", "")
+                role, content = item.get("role", "user"), item.get("content", "")
             else:
                 continue
             if role in ("assistant", "ai"):
-                from langchain_core.messages import AIMessage as AIm
-                msgs.append(AIm(content=content))
+                msgs.append(AIMessage(content=content))
             else:
                 msgs.append(HumanMessage(content=content))
 
@@ -64,42 +62,59 @@ def run_agent(agent, question: str, chat_history: list | None = None) -> dict:
     result = agent.invoke({"messages": msgs})
 
     output_msgs = result.get("messages", [])
-    reply = ""
-    steps = []
+    reply, steps = "", []
 
     for i, m in enumerate(output_msgs):
-        cls_name = m.__class__.__name__
-        if cls_name == "ToolMessage":
-            # Find the preceding AIMessage with tool_calls
+        if m.__class__.__name__ == "ToolMessage":
             tool_call = {}
             for prev in reversed(output_msgs[:i]):
                 if hasattr(prev, "tool_calls") and prev.tool_calls:
-                    # Match by tool_call_id
                     tc_id = getattr(m, "tool_call_id", "")
                     for tc in prev.tool_calls:
                         if tc.get("id") == tc_id or not tc_id:
-                            tool_call = tc
-                            break
+                            tool_call = tc; break
                     if not tool_call and prev.tool_calls:
                         tool_call = prev.tool_calls[0]
                     break
-            steps.append({
-                "tool": tool_call.get("name", "unknown"),
-                "tool_input": str(tool_call.get("args", {})),
-                "observation": str(m.content)[:300],
-            })
+            steps.append({"tool": tool_call.get("name", "?"), "tool_input": str(tool_call.get("args", {})),
+                          "observation": str(m.content)[:300]})
 
-    # Extract final AIMessage reply (after all tool calls)
     for m in reversed(output_msgs):
-        cls_name = m.__class__.__name__
-        content = str(m.content) if hasattr(m, "content") and m.content else ""
-        has_tool_calls = hasattr(m, "tool_calls") and m.tool_calls
-        if cls_name == "AIMessage" and content and not has_tool_calls:
-            reply = content
-            break
+        if m.__class__.__name__ == "AIMessage" and m.content and not (hasattr(m, "tool_calls") and m.tool_calls):
+            reply = m.content; break
 
     if not reply and steps:
-        # Fallback: use last tool observation as reply
-        reply = steps[-1]["observation"] if steps else "已为您查询相关信息。"
+        reply = steps[-1]["observation"]
+    return {"reply": reply or "已查询", "intermediate_steps": steps}
 
-    return {"reply": reply, "intermediate_steps": steps}
+
+# ===== 多智能体 Supervisor (新入口) =====
+
+def create_supervisor_agent(merchant_id: int, role_prompt: str = ""):
+    """创建 Supervisor-Worker 多智能体系统。"""
+    from app.ai.supervisor import SupervisorAgent
+    return SupervisorAgent(merchant_id, role_prompt=role_prompt)
+
+
+# ===== 统一执行入口 =====
+
+def run_agent(agent, question: str, chat_history: list | None = None) -> dict:
+    """
+    统一执行入口 — 自动检测 Agent 类型:
+
+    - SupervisorAgent → 多智能体管线 (classify → route → dispatch → aggregate)
+    - LangGraph Graph (传统) → 单 Agent ReAct 执行
+
+    Returns:
+        {"reply": str, "intermediate_steps": list, "trace": list (Supervisor only)}
+    """
+    # 检测是否为 SupervisorAgent
+    if hasattr(agent, 'process'):
+        result = agent.process(question, chat_history)
+        # 兼容旧接口字段
+        if "intermediate_steps" not in result:
+            result["intermediate_steps"] = []
+        return result
+
+    # 传统单 Agent
+    return _run_legacy_agent(agent, question, chat_history)

@@ -6,7 +6,7 @@ AI 引擎接口（PHASE1-PLAN 4.6/4.7 / api.md 3.6）
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.ai_suggestion_log import AISuggestionLog
@@ -92,7 +92,7 @@ def ai_suggest_log(
 
 # ===== AI 话术风格（缺口3）=====
 @router.get("/styles")
-def list_styles(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def list_styles(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     styles = db.query(AIStyleConfig).filter(
         AIStyleConfig.merchant_id == current.merchant_id).order_by(AIStyleConfig.id).all()
     return ok([{

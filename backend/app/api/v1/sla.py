@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.sla_policy import SLAPolicy
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/sla", tags=["SLA"])
 
 
 @router.get("/policies")
-def list_policies(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def list_policies(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     policies = db.query(SLAPolicy).filter(SLAPolicy.merchant_id == current.merchant_id).order_by(
         SLAPolicy.priority).all()
     return ok([{"id": p.id, "priority": p.priority, "category_id": p.category_id,

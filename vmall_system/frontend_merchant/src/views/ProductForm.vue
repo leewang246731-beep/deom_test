@@ -45,6 +45,7 @@ import { getProduct, createProduct, updateProduct } from '../api'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
+import { ArrowLeft } from '@element-plus/icons-vue'
 const router = useRouter()
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref(null)

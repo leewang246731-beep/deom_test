@@ -91,7 +91,7 @@ const rules = {
 
 async function fetch() {
   loading.value = true
-  try { policies.value = (await getSLAPolicies()).data || [] } catch { /* */ }
+  try { policies.value = (await getSLAPolicies()).data || [] } catch { policies.value = [] }
   finally { loading.value = false }
 }
 
@@ -117,15 +117,15 @@ async function handleSave() {
   saving.value = true
   try {
     const data = { ...form }
-    if (isEdit.value) { await updateSLAPolicy(editId.value, data); ElMessage.success('已更新') }
-    else { await createSLAPolicy(data); ElMessage.success('已创建') }
+    if (isEdit.value) { await updateSLAPolicy(editId.value, data); ElMessage.success('策略已更新') }
+    else { await createSLAPolicy(data); ElMessage.success('策略已创建') }
     showDialog.value = false; fetch()
-  } catch { /* */ } finally { saving.value = false }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function handleDelete(row) {
-  await ElMessageBox.confirm(`确定删除此 SLA 策略？`, '提示', { type: 'warning' })
-  try { await deleteSLAPolicy(row.id); ElMessage.success('已删除'); fetch() } catch { /* */ }
+  try { await ElMessageBox.confirm('确定删除此 SLA 策略？', '提示', { type: 'warning' }) } catch { return }
+  try { await deleteSLAPolicy(row.id); ElMessage.success('已删除'); fetch() } catch { /* error shown by interceptor */ }
 }
 
 fetch()

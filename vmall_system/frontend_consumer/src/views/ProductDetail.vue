@@ -12,20 +12,23 @@
           </el-radio-group></div>
         <el-input-number v-model="qty" :min="1" :max="selectedSku?.stock||1" style="margin:8px 0;width:120px"/>
         <div style="margin-top:16px;display:flex;gap:12px">
-          <el-button type="warning" size="large" @click="doBuy" :disabled="!selectedSkuCode">立即购买</el-button>
-          <el-button size="large" @click="doContact">联系客服</el-button></div>
+          <el-button type="warning" size="large" @click="doBuy" :disabled="!selectedSkuCode" :loading="buying">立即购买</el-button>
+          <el-button size="large" @click="doContact" :loading="contacting">联系客服</el-button></div>
       </el-col></el-row>
   </div>
 </template>
 <script setup>
 import { ref, computed, onMounted } from 'vue'; import { useRoute, useRouter } from 'vue-router'; import { getProduct, createOrder, createConv } from '../api'; import { ElMessage } from 'element-plus'
-const route=useRoute(); const r=useRouter(); const p=ref({}); const loading=ref(false); const qty=ref(1); const selectedSkuCode=ref('')
+const route=useRoute(); const r=useRouter(); const p=ref({}); const loading=ref(false); const buying=ref(false); const contacting=ref(false)
+const qty=ref(1); const selectedSkuCode=ref('')
 const selectedSku=computed(()=>(p.value.skus_json||[]).find(s=>s.sku_code===selectedSkuCode.value))
-async function fetch(){loading.value=true;try{p.value=(await getProduct(route.params.id)).data||{};if(p.value.skus_json?.length&&!selectedSkuCode.value)selectedSkuCode.value=p.value.skus_json[0].sku_code}finally{loading.value=false}}
+async function fetch(){loading.value=true;try{p.value=(await getProduct(route.params.id)).data||{};if(p.value.skus_json?.length&&!selectedSkuCode.value)selectedSkuCode.value=p.value.skus_json[0].sku_code}catch{p.value={}}finally{loading.value=false}}
 async function doBuy(){
   if(!selectedSkuCode.value)return ElMessage.warning('请选择规格')
-  try{const res=await createOrder({product_id:p.value.id,sku_code:selectedSkuCode.value,quantity:qty.value,receiver_name:'小明',receiver_phone:'13800138000',receiver_address:'江苏省南京市玄武区虚拟路1号'});ElMessage.success('下单成功!');r.push('/orders')}catch{/* */}}
+  buying.value=true
+  try{await createOrder({product_id:p.value.id,sku_code:selectedSkuCode.value,quantity:qty.value,receiver_name:'小明',receiver_phone:'13800138000',receiver_address:'江苏省南京市玄武区虚拟路1号'});ElMessage.success('下单成功!');r.push('/orders')}catch{/* error shown by interceptor */}finally{buying.value=false}}
 async function doContact(){
-  try{const res=await createConv({product_id:p.value.id,order_id:null,ip_region:'江苏·南京'});r.push('/chat/'+res.data.id)}catch{/* */}}
+  contacting.value=true
+  try{const res=await createConv({product_id:p.value.id,order_id:null,ip_region:'江苏·南京'});r.push('/chat/'+res.data.id)}catch{/* error shown by interceptor */}finally{contacting.value=false}}
 onMounted(fetch)
 </script>

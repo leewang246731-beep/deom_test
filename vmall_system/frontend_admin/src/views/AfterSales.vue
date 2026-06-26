@@ -18,8 +18,8 @@ import { ref, reactive, onMounted } from 'vue'; import { getAfterSales, reviewAf
 const items=ref([]); const loading=ref(false); const total=ref(0); const page=ref(1); const f=reactive({status:'pending_review'})
 const showReview=ref(null); const remark=ref(''); let reviewAction=''
 function review(r,action){showReview.value=r;reviewAction=action;remark.value=action==='approve'?'审核通过':'审核拒绝'}
-async function confirmReview(){if(!showReview.value)return;await reviewAfterSale(showReview.value.id,{action:reviewAction,remark:remark.value});showReview.value=null;ElMessage.success('已审核');fetch()}
-async function doConfirm(r){await confirmReceive(r.id);ElMessage.success('已确认收货');fetch()}
-async function fetch(){loading.value=true;try{const params={page:page.value,page_size:20};if(f.status)params.status=f.status;const res=await getAfterSales(params);items.value=res.data?.items||[];total.value=res.data?.total||0}finally{loading.value=false}}
+async function confirmReview(){if(!showReview.value)return;try{await reviewAfterSale(showReview.value.id,{action:reviewAction,remark:remark.value});showReview.value=null;ElMessage.success('已审核');fetch()}catch{/* error shown by interceptor */}}
+async function doConfirm(r){try{await confirmReceive(r.id);ElMessage.success('已确认收货');fetch()}catch{/* error shown by interceptor */}}
+async function fetch(){loading.value=true;try{const params={page:page.value,page_size:20};if(f.status)params.status=f.status;const res=await getAfterSales(params);items.value=res.data?.items||[];total.value=res.data?.total||0}catch{items.value=[];total.value=0}finally{loading.value=false}}
 onMounted(fetch)
 </script>

@@ -8,7 +8,7 @@ class WebhookDeliveryLog(Base):
     __tablename__ = "webhook_delivery_logs"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    merchant_id = Column(BigInteger, nullable=False, index=True)
+    merchant_id = Column(BigInteger, nullable=True, index=True, comment="可为空（webhook 可能无商户上下文）")
     event_type = Column(String(50), nullable=False)
     source_shop_id = Column(Integer, nullable=True)
     payload_json = Column(Text, nullable=True)

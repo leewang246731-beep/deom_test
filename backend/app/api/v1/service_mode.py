@@ -5,7 +5,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.response import ok, page
 from app.database.session import get_db
 from app.models.conversation import Conversation
@@ -17,8 +17,14 @@ router = APIRouter(prefix="/service-mode", tags=["客服模式"])
 
 
 @router.get("/config")
-def get_config(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    cfg = get_mode_config(db, current.merchant_id)
+def get_config(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    # 平台管理员查看第一个可用配置，无可用时返回默认值
+    if current.merchant_id is None:
+        cfg = db.query(ServiceModeConfig).first()
+    else:
+        cfg = get_mode_config(db, current.merchant_id)
+    if not cfg:
+        return ok({"default_mode": "copilot", "auto_confidence_threshold": 0.80, "fallback_confidence_threshold": 0.50, "human_response_timeout_seconds": 120, "fallback_template": "", "busy_template": "", "offline_template": ""})
     return ok({
         "id": cfg.id, "default_mode": cfg.default_mode,
         "auto_mode_hours": cfg.auto_mode_hours,
@@ -77,8 +83,10 @@ def takeover(conv_id: int, current: CurrentUser = Depends(get_current_merchant),
 @router.get("/auto-reply-logs")
 def list_logs(page_no: int = Query(1, alias="page"), page_size: int = Query(20),
               action: str = Query(None),
-              current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    q = db.query(AutoReplyLog).filter(AutoReplyLog.merchant_id == current.merchant_id)
+              current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(AutoReplyLog)
+    if current.merchant_id is not None:
+        q = q.filter(AutoReplyLog.merchant_id == current.merchant_id)
     if action:
         q = q.filter(AutoReplyLog.action_taken == action)
     total = q.count()
@@ -94,7 +102,7 @@ def list_logs(page_no: int = Query(1, alias="page"), page_size: int = Query(20),
 
 
 @router.get("/stats")
-def auto_reply_stats(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def auto_reply_stats(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     """自动回复统计。"""
     mid = current.merchant_id
     total = db.query(AutoReplyLog).filter(AutoReplyLog.merchant_id == mid).count()

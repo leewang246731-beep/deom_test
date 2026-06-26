@@ -1,11 +1,20 @@
+/**
+ * API Client — SaaS Platform v2.0.1
+ * All functions return Promise<ApiResponse<T>> where T is the data type.
+ * @see ./types/openapi.d.ts for full type definitions.
+ */
 import http from './request'
 
 // ---- auth ----
+/** @returns {Promise<import('./types/openapi').ApiResponse<import('./types/openapi').LoginResponse>>} */
 export const login = (username, password, merchant_id) => http.post('/auth/login', { username, password, merchant_id })
+/** @returns {Promise<import('./types/openapi').ApiResponse<import('./types/openapi').LoginResponse>>} */
 export const loginPlatform = (username, password) => http.post('/auth/platform/login', { username, password })
 
 // ---- shops ----
+/** @returns {Promise<import('./types/openapi').ApiResponse<import('./types/openapi').ShopItem[]>>} */
 export const getShops = () => http.get('/shops')
+/** @param {import('./types/openapi').ShopCreate} data */
 export const bindShop = (data) => http.post('/shops', data)
 export const unbindShop = (id) => http.delete(`/shops/${id}`)
 export const syncShop = (id) => http.post(`/shops/${id}/sync`)
@@ -14,6 +23,7 @@ export const triggerSyncAll = () => http.post('/shops/trigger-sync')
 
 // ---- products ----
 export const getProducts = (params) => http.get('/products', { params })
+export const getProduct = (id) => http.get(`/products/${id}`)
 export const searchProducts = (q, shopId) => http.get('/products/search', { params: { q, shop_id: shopId } })
 export const syncProducts = (shopId) => http.post(`/products/sync/${shopId}`)
 export const createProduct = (data) => http.post('/products', data)
@@ -28,6 +38,7 @@ export const deleteUser = (id) => http.delete(`/users/${id}`)
 
 // ---- orders ----
 export const getOrders = (params) => http.get('/orders', { params })
+export const getOrder = (id) => http.get(`/orders/${id}`)
 export const getPendingPayment = () => http.get('/orders/pending-payment')
 export const refundOrder = (id) => http.post(`/orders/${id}/refund`)
 export const remindPayment = (shopId, limit, offset) => http.post('/orders/pending-payment/remind', { shop_id: shopId, limit, offset })

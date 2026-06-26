@@ -28,6 +28,7 @@
 import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useMerchantStore } from '../stores/merchant'
+import { DataAnalysis, Goods, Document, Service, Connection, Setting } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()

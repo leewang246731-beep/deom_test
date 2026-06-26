@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.redis_client import get_redis, mkey
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -74,9 +74,11 @@ def list_tickets(
     status: str = Query(None), priority: str = Query(None),
     assigned_to: int = Query(None), category_id: int = Query(None),
     page_no: int = Query(1, alias="page"), page_size: int = Query(20),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
-    q = db.query(Ticket).filter(Ticket.merchant_id == current.merchant_id)
+    q = db.query(Ticket)
+    if current.merchant_id is not None:
+        q = q.filter(Ticket.merchant_id == current.merchant_id)
     if status: q = q.filter(Ticket.status == status)
     if priority: q = q.filter(Ticket.priority == priority)
     if assigned_to: q = q.filter(Ticket.assigned_to == assigned_to)
@@ -132,9 +134,11 @@ def create_ticket(body: TicketCreate, current: CurrentUser = Depends(get_current
 def export_tickets(
     status: str = Query(None), priority: str = Query(None),
     assigned_to: int = Query(None),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
-    q = db.query(Ticket).filter(Ticket.merchant_id == current.merchant_id)
+    q = db.query(Ticket)
+    if current.merchant_id is not None:
+        q = q.filter(Ticket.merchant_id == current.merchant_id)
     if status: q = q.filter(Ticket.status == status)
     if priority: q = q.filter(Ticket.priority == priority)
     if assigned_to: q = q.filter(Ticket.assigned_to == assigned_to)
@@ -156,10 +160,11 @@ def export_tickets(
 
 # ---- 分类树（必须在 /{ticket_id} 之前，防止 "categories" 被当作 ticket_id） ----
 @router.get("/categories")
-def list_categories(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    cats = db.query(TicketCategory).filter(
-        TicketCategory.merchant_id == current.merchant_id
-    ).order_by(TicketCategory.level, TicketCategory.sort_order).all()
+def list_categories(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(TicketCategory)
+    if current.merchant_id is not None:
+        q = q.filter(TicketCategory.merchant_id == current.merchant_id)
+    cats = q.order_by(TicketCategory.level, TicketCategory.sort_order).all()
 
     def build(parent_id=None):
         return [{"id": c.id, "name": c.name, "level": c.level,
@@ -265,8 +270,11 @@ def batch_operation(
 
 # ---- 单个工单操作（参数化路由放在最后） ----
 @router.get("/{ticket_id}")
-def ticket_detail(ticket_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
+def ticket_detail(ticket_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(Ticket).filter(Ticket.id == ticket_id)
+    if current.merchant_id is not None:
+        q = q.filter(Ticket.merchant_id == current.merchant_id)
+    t = q.first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
     assignee = db.query(MerchantUser).get(t.assigned_to) if t.assigned_to else None
@@ -403,8 +411,11 @@ def auto_summarize(ticket_id: int, current: CurrentUser = Depends(get_current_me
 
 # ---- 评论 ----
 @router.get("/{ticket_id}/comments")
-def list_comments(ticket_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    t = db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.merchant_id == current.merchant_id).first()
+def list_comments(ticket_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    q = db.query(Ticket).filter(Ticket.id == ticket_id)
+    if current.merchant_id is not None:
+        q = q.filter(Ticket.merchant_id == current.merchant_id)
+    t = q.first()
     if not t:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "工单不存在"})
     comments = db.query(TicketComment).filter(TicketComment.ticket_id == ticket_id).order_by(

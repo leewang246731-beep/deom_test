@@ -10,7 +10,7 @@
         <div style="color:#e6a23c;font-size:20px;font-weight:bold">¥{{o.pay_amount}}</div>
         <div><el-tag :type="st(o.status)">{{o.status}}</el-tag></div>
         <div>
-          <el-button v-if="o.status==='pending_payment'" size="small" type="warning" @click="doPay(o.id)">支付</el-button>
+          <el-button v-if="o.status==='pending_payment'" size="small" type="warning" :loading="paying===o.id" @click="doPay(o.id)">支付</el-button>
           <el-button v-if="o.status==='received'||o.status==='completed'" size="small" @click="showRefund=o">申请售后</el-button>
           <el-button size="small" text @click="showDetail=o">详情</el-button></div></div>
       <div v-if="o.skus" style="margin-top:8px"><el-tag size="small" v-for="s in o.skus" :key="s.sku_code" style="margin-right:4px">{{s.spec}} x{{s.qty}}</el-tag></div>
@@ -27,10 +27,11 @@
 </template>
 <script setup>
 import { ref, reactive } from 'vue'; import { getMyOrders, payOrder, applyAfterSale } from '../api'; import { ElMessage } from 'element-plus'
-const orders=ref([]); const tab=ref(''); const showDetail=ref(null); const showRefund=ref(null); const rf=reactive({type:'refund_only',reason:''})
+const orders=ref([]); const tab=ref(''); const showDetail=ref(null); const showRefund=ref(null); const paying=ref(null); const refunding=ref(false)
+const rf=reactive({type:'refund_only',reason:''})
 function st(s){const m={'pending_payment':'warning','paid':'','shipped':'primary','received':'success','completed':'','closed':'info'};return m[s]||''}
-async function fetch(){const res=await getMyOrders({status:tab.value||undefined,page:1,page_size:50});orders.value=res.data?.items||[]}
-async function doPay(id){await payOrder(id);ElMessage.success('支付处理中...');setTimeout(fetch,3000)}
-async function doRefund(){if(!showRefund.value)return;await applyAfterSale({order_id:showRefund.value.id,type:rf.type,reason:rf.reason,refund_amount:showRefund.value.pay_amount});ElMessage.success('售后申请已提交');showRefund.value=null;fetch()}
+async function fetch(){try{const res=await getMyOrders({status:tab.value||undefined,page:1,page_size:50});orders.value=res.data?.items||[]}catch{orders.value=[]}}
+async function doPay(id){paying.value=id;try{await payOrder(id);ElMessage.success('支付处理中...');setTimeout(fetch,3000)}catch{/* error shown by interceptor */}finally{paying.value=null}}
+async function doRefund(){if(!showRefund.value)return;refunding.value=true;try{await applyAfterSale({order_id:showRefund.value.id,type:rf.type,reason:rf.reason,refund_amount:showRefund.value.pay_amount});ElMessage.success('售后申请已提交');showRefund.value=null;fetch()}catch{/* error shown by interceptor */}finally{refunding.value=false}}
 import { onMounted } from 'vue'; onMounted(fetch)
 </script>

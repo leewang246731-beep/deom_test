@@ -109,18 +109,33 @@ async function fetchAll() {
     ticket.value = t.data; comments.value = c.data || []
     nextStatus.value = ''
     aiSuggestions.value = []; aiSummary.value = ''
+  } catch {
+    ticket.value = null; comments.value = []
   } finally { loading.value = false }
 }
 
 async function sendComment() {
   if (!newComment.value.trim()) return
-  await addTicketComment(route.params.id, { content: newComment.value, is_internal: isInternal.value ? 1 : 0 })
-  newComment.value = ''; isInternal.value = false; fetchAll()
+  try {
+    await addTicketComment(route.params.id, { content: newComment.value, is_internal: isInternal.value ? 1 : 0 })
+    newComment.value = ''; isInternal.value = false
+    ElMessage.success('评论已发送')
+    fetchAll()
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 async function doStatus() {
   statusLoading.value = true
-  try { await updateTicketStatus(route.params.id, { status: nextStatus.value, resolved_notes: resolveNotes.value || undefined }); ElMessage.success('状态已更新'); fetchAll() } finally { statusLoading.value = false }
+  try {
+    await updateTicketStatus(route.params.id, { status: nextStatus.value, resolved_notes: resolveNotes.value || undefined })
+    ElMessage.success('状态已更新')
+    resolveNotes.value = ''
+    fetchAll()
+  } catch {
+    // error shown by interceptor
+  } finally { statusLoading.value = false }
 }
 
 function goBack() {
@@ -128,19 +143,70 @@ function goBack() {
   else router.push('/tickets')
 }
 
-async function doAssign() { await assignTicket(route.params.id, assignTo.value); ElMessage.success('已改派'); fetchAll() }
-async function doClaim() { await claimTicket(route.params.id); ElMessage.success('已领取'); fetchAll() }
+async function doAssign() {
+  try {
+    await assignTicket(route.params.id, assignTo.value)
+    ElMessage.success('已改派')
+    assignTo.value = null
+    fetchAll()
+  } catch {
+    // error shown by interceptor
+  }
+}
 
-async function doAIClassify() { aiLoading.value = true; try { const r = await autoClassifyTicket(route.params.id); ElMessage.success(`建议优先级: ${r.data.suggested_priority}`); fetchAll() } finally { aiLoading.value = false } }
-async function doAISummarize() { aiLoading.value = true; try { const r = await autoSummarizeTicket(route.params.id); aiSummary.value = r.data.summary } finally { aiLoading.value = false } }
+async function doClaim() {
+  try {
+    await claimTicket(route.params.id)
+    ElMessage.success('已领取')
+    fetchAll()
+  } catch {
+    // error shown by interceptor
+  }
+}
+
+async function doAIClassify() {
+  aiLoading.value = true
+  try {
+    const r = await autoClassifyTicket(route.params.id)
+    ElMessage.success(`AI建议: 优先级 ${r.data?.suggested_priority || '?'}`)
+    fetchAll()
+  } catch {
+    ElMessage.warning('AI 分类失败，请手动选择')
+  } finally { aiLoading.value = false }
+}
+
+async function doAISummarize() {
+  aiLoading.value = true
+  try {
+    const r = await autoSummarizeTicket(route.params.id)
+    aiSummary.value = r.data?.summary || '暂无总结'
+  } catch {
+    ElMessage.warning('AI 总结失败')
+  } finally { aiLoading.value = false }
+}
 
 async function doAISuggest() {
   aiLoading.value = true
-  try { const r = await ticketAISuggest(route.params.id); aiSuggestions.value = r.data.suggestions || [] } finally { aiLoading.value = false }
+  try {
+    const r = await ticketAISuggest(route.params.id)
+    aiSuggestions.value = r.data?.suggestions || []
+    if (!aiSuggestions.value.length) ElMessage.info('暂无建议话术')
+  } catch {
+    ElMessage.warning('AI 建议生成失败')
+  } finally { aiLoading.value = false }
 }
 
 onMounted(async () => {
   fetchAll()
-  try { const g = await getSkillGroups(); const users = new Map(); (g.data||[]).forEach(grp => (grp.members||[]).forEach(m => users.set(m.user_id, {id:m.user_id, label:m.display_name||`用户${m.user_id}`}))); userOptions.value = [...users.values()] } catch { /* */ }
+  try {
+    const g = await getSkillGroups()
+    const users = new Map()
+    ;(g.data || []).forEach(grp =>
+      (grp.members || []).forEach(m => users.set(m.user_id, { id: m.user_id, label: m.display_name || `用户${m.user_id}` }))
+    )
+    userOptions.value = [...users.values()]
+  } catch {
+    // non-critical
+  }
 })
 </script>

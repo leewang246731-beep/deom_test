@@ -66,9 +66,7 @@ onMounted(async () => {
 async function openChat(row) {
   currentConv.value = row
   chatVisible.value = true
-  try {
-    messages.value = await getConvMessages(row.id)
-  } catch { /* handled */ }
+  try { messages.value = await getConvMessages(row.id) } catch { messages.value = [] }
 }
 
 async function handleReply() {
@@ -77,6 +75,6 @@ async function handleReply() {
     await sendMessage(currentConv.value.id, { content: replyText.value, sender: 'merchant' })
     messages.value.push({ id: Date.now(), content: replyText.value, sender: 'merchant', created_at: new Date().toISOString() })
     replyText.value = ''
-  } catch { /* handled */ }
+  } catch { /* error shown by interceptor */ }
 }
 </script>

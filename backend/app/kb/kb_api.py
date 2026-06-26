@@ -21,9 +21,14 @@ from app.kb.retriever import hybrid_retrieve
 from app.kb.optimizer import QueryOptimizer
 from app.kb.crag import CragEvaluator
 from app.kb.reranker import rerank_by_relevance
+from app.kb.reranker_v2 import rerank as rerank_v2  # NEW: gte-rerank-v2
 from app.kb.postproc import compress_chunks, reorder_chunks
+from app.kb.compressor import compress_chunks as compress_sentences  # NEW: sentence-level
 from app.kb.prompt import build_qa_prompt, compute_confidence, build_references
 from app.kb.bm25_index import delete_index
+from app.kb.query_processor import optimize_query, hyde_rewrite  # NEW: HyDE enabled
+from app.kb.self_correction import SelfCorrection  # NEW: fact-check
+from app.kb.quality_monitor import log_qa_trace  # NEW: analytics
 
 router = APIRouter(prefix="/kb", tags=["知识库"])
 
@@ -31,12 +36,17 @@ router = APIRouter(prefix="/kb", tags=["知识库"])
 FEATURE = {
     "hybrid": True,
     "rerank": True,
+    "rerank_v2": True,   # NEW: gte-rerank-v2 API (preferred over cosine)
     "crag": True,
     "rewrite": True,
-    "hyde": False,
+    "hyde": True,        # CHANGED: now enabled
     "reorder": True,
     "compress": True,
+    "compress_sentences": True,  # NEW: sentence-level compression
+    "self_correction": True,     # NEW: fact-check + correction
 }
+# Init self-correction
+_self_correction = SelfCorrection(enabled=FEATURE["self_correction"])
 
 _client: OpenAI | None = None
 
@@ -150,31 +160,55 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
 
     async def stream():
         t_start = time.time()
+        trace = []
         try:
-            # Step 1: 重写
-            rewritten = optimizer.rewrite(query) if FEATURE["rewrite"] else query
+            # Step 1: Query optimization (rewrite + HyDE + step-back)
+            if FEATURE["rewrite"]:
+                queries = optimize_query(query, mode=mode)
+                rewritten = queries[0]  # Original + rewritten + hyde
+                trace.append({"step": "optimize", "queries": len(queries)})
+            else:
+                rewritten = query
+
             # Step 2: embed
             q_emb = _embed_single(rewritten)
+
             # Step 3: hybrid retrieve
             chunks = hybrid_retrieve(mid, rewritten, q_emb, use_bm25=FEATURE["hybrid"])
-            # Step 4: CRAG
+            trace.append({"step": "retrieve", "count": len(chunks)})
+
+            # Step 4: CRAG evaluate
             if FEATURE["crag"] and chunks:
                 crag = evaluator.evaluate(rewritten, chunks[:5])
+                trace.append({"step": "crag", "verdict": crag.get("verdict", "?")})
                 if crag["verdict"] == "no_context":
                     yield f"data: {json.dumps({'type': 'warning', 'msg': '知识库中没有相关信息'})}\n\n"
                     return
                 elif crag["verdict"] == "partial":
                     relevant_ids = set(crag["relevant"])
                     chunks = [c for c in chunks if c["chunk_id"] in relevant_ids]
-            # Step 5: rerank
-            if FEATURE["rerank"] and chunks:
-                chunks = rerank_by_relevance(chunks, q_emb, _embed)
-            # Step 6: postproc
-            if FEATURE["compress"]:
+
+            # Step 5: rerank (prefer gte-rerank-v2, fallback to cosine)
+            if chunks:
+                if FEATURE.get("rerank_v2") and settings.DASHSCOPE_API_KEY:
+                    chunks = rerank_v2(rewritten, chunks, top_n=10)
+                    trace.append({"step": "rerank", "method": "gte-rerank-v2"})
+                elif FEATURE["rerank"]:
+                    chunks = rerank_by_relevance(chunks, q_emb, _embed)
+                    trace.append({"step": "rerank", "method": "cosine"})
+
+            # Step 6: post-processing (sentence-level compress + reorder)
+            if FEATURE.get("compress_sentences") and len(chunks) > 5:
+                chunks = compress_sentences(chunks, query)
+                trace.append({"step": "compress", "method": "sentence_level"})
+            elif FEATURE["compress"]:
                 chunks = compress_chunks(chunks)
+                trace.append({"step": "compress", "method": "token_truncate"})
             if FEATURE["reorder"]:
                 chunks = reorder_chunks(chunks)
-            # Step 7: prompt + LLM
+                trace.append({"step": "reorder"})
+
+            # Step 7: prompt + LLM generation
             prompt = build_qa_prompt(query, chunks)
             yield f"data: {json.dumps({'type': 'context', 'sources': build_references(chunks), 'retrieved': len(chunks)})}\n\n"
 
@@ -194,8 +228,19 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
                     await asyncio.sleep(0)
 
+            # Step 8: Self-correction (fact-check + re-generate if needed)
+            corrected = False
+            if FEATURE.get("self_correction") and full and chunks:
+                check = _self_correction.check(full, chunks)
+                trace.append({"step": "self_correction", "factual": check.get("factual", True)})
+                if check.get("needs_correction"):
+                    full = _self_correction.correct(full, chunks, check.get("unsupported_claims", []))
+                    corrected = True
+                    trace.append({"step": "self_correction", "corrected": True})
+
             latency = int((time.time() - t_start) * 1000)
             confidence = compute_confidence(chunks, full)
+
             # Save conversation
             if conv_id:
                 try:
@@ -209,8 +254,12 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
                     db.commit()
                 except Exception:
                     pass
+
+            # Step 9: Quality monitor logging
+            log_qa_trace(mid, user.get("user_id"), query, full, chunks, confidence, latency, trace)
+
             refs = build_references(chunks)
-            yield f"data: {json.dumps({'type': 'done', 'confidence': confidence, 'latency_ms': latency, 'references': refs})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'confidence': confidence, 'latency_ms': latency, 'references': refs, 'corrected': corrected, 'trace': trace[-5:]})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'msg': str(e)})}\n\n"
 

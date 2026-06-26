@@ -16,6 +16,9 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = data.user
     localStorage.setItem('token', data.access_token)
     localStorage.setItem('user', JSON.stringify(data.user))
+    if (data.refresh_token) {
+      localStorage.setItem('refresh_token', data.refresh_token)
+    }
   }
 
   function logout() {
@@ -23,6 +26,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    localStorage.removeItem('refresh_token')
   }
 
   // 平台端登录

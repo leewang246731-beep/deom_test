@@ -23,6 +23,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { getOrder } from '../api'
 
 const route = useRoute()

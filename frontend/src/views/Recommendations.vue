@@ -88,11 +88,11 @@ function ruleTypeLabel(t) {
   return m[t] || t
 }
 
-async function fetchHot() { hotLoading.value = true; try { hot.value = (await getHotProducts({ top_k: 20 })).data?.recommendations || [] } finally { hotLoading.value = false } }
+async function fetchHot() { hotLoading.value = true; try { hot.value = (await getHotProducts({ top_k: 20 })).data?.recommendations || [] } catch { hot.value = [] } finally { hotLoading.value = false } }
 
 async function fetchRules() {
   rulesLoading.value = true
-  try { rules.value = (await getRecommendationRules()).data || [] } finally { rulesLoading.value = false }
+  try { rules.value = (await getRecommendationRules()).data || [] } catch { rules.value = [] } finally { rulesLoading.value = false }
 }
 
 async function fetchProductTitles() {
@@ -101,7 +101,7 @@ async function fetchProductTitles() {
     if (!ids.length) return
     const res = await getProducts({ page: 1, page_size: 100 })
     for (const p of (res.data?.items || [])) { if (ids.includes(p.id)) productTitles.value[p.id] = p.title }
-  } catch {}
+  } catch { /* non-critical */ }
 }
 
 function openAddRule() {
@@ -117,27 +117,32 @@ function openEditRule(row) {
 }
 
 async function handleSaveRule() {
-  if (!ruleForm.product_id || !ruleForm.recommended_product_id) return ElMessage.warning('请填写商品ID')
-  const data = { rule_type: ruleForm.rule_type, priority: ruleForm.priority, is_active: ruleForm.is_active }
-  if (isEdit.value) { await updateRecommendationRule(editRuleId.value, data); ElMessage.success('已更新') }
-  else { await createRecommendationRule({ ...ruleForm }); ElMessage.success('已添加') }
-  showRuleDialog.value = false; fetchRules()
+  if (!ruleForm.product_id || !ruleForm.recommended_product_id) return ElMessage.warning('请选择商品和推荐商品')
+  try {
+    const data = { rule_type: ruleForm.rule_type, priority: ruleForm.priority, is_active: ruleForm.is_active }
+    if (isEdit.value) { await updateRecommendationRule(editRuleId.value, data); ElMessage.success('规则已更新') }
+    else { await createRecommendationRule({ ...ruleForm }); ElMessage.success('规则已添加') }
+    showRuleDialog.value = false; fetchRules()
+  } catch { /* error shown by interceptor */ }
 }
 
 async function toggleActive(row) {
-  try { await updateRecommendationRule(row.id, { is_active: row.is_active }) } catch { row.is_active = row.is_active ? 0 : 1; fetchRules() }
+  const prev = row.is_active
+  try { await updateRecommendationRule(row.id, { is_active: row.is_active }) } catch { row.is_active = prev }
 }
 
-async function handleDeleteRule(id) { await deleteRecommendationRule(id); ElMessage.success('已删除'); fetchRules() }
+async function handleDeleteRule(id) {
+  try { await deleteRecommendationRule(id); ElMessage.success('已删除'); fetchRules() } catch { /* error shown by interceptor */ }
+}
 
 async function handleRebuild() {
   rebuilding.value = true
-  try { const r = await rebuildCoPurchase(); ElMessage.success(`重建完成: ${r?.co_purchase_pairs || 0} 共购对, ${r?.buyer_profiles || 0} 买家画像`) } finally { rebuilding.value = false }
+  try { const r = await rebuildCoPurchase(); ElMessage.success(`重建完成: ${r?.data?.co_purchase_pairs || 0} 共购对`) } catch { /* error shown by interceptor */ } finally { rebuilding.value = false }
 }
 
 async function handleAutoGenerate() {
   autoGenLoading.value = true
-  try { const r = await autoGenerateRules(20); ElMessage.success(r.msg || `已生成 ${r.created_rules} 条规则`); fetchRules() } finally { autoGenLoading.value = false }
+  try { const r = await autoGenerateRules(20); ElMessage.success(r?.msg || '规则已生成'); fetchRules() } catch { /* error shown by interceptor */ } finally { autoGenLoading.value = false }
 }
 
 onMounted(async () => { await Promise.all([fetchHot(), fetchRules()]); fetchProductTitles() })

@@ -74,7 +74,8 @@ async function fetch() {
     const r = await getWallets(p)
     wallets.value = r.data?.items || []
     total.value = r.data?.total || 0
-  } finally { loading.value = false }
+  } catch { wallets.value = []; total.value = 0 }
+  finally { loading.value = false }
 }
 
 function openRecharge(row) {
@@ -92,7 +93,8 @@ async function doRecharge() {
     showRecharge.value = false
     ElMessage.success(`充值 ¥${rechargeForm.amount} 成功`)
     fetch()
-  } finally { recharging.value = false }
+  } catch { /* error shown by interceptor */ }
+  finally { recharging.value = false }
 }
 
 async function openTx(row) {
@@ -100,7 +102,7 @@ async function openTx(row) {
   try {
     const r = await getWalletTx(row.buyer_id, { page: 1, page_size: 50 })
     transactions.value = r.data?.items || []
-  } catch { /* */ }
+  } catch { transactions.value = [] }
 }
 
 onMounted(fetch)

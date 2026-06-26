@@ -17,8 +17,8 @@
 import { ref, reactive, onMounted } from 'vue'; import { getOrders, getOrder, shipOrder } from '../api'; import { ElMessage } from 'element-plus'
 const orders=ref([]); const loading=ref(false); const total=ref(0); const page=ref(1); const f=reactive({status:''}); const showShip=ref(null); const showDetail=ref(null); const sf=reactive({company:'顺丰速运',tracking_no:''})
 const ss=['pending_payment','paid','shipped','received','completed','closed']
-async function fetch(){loading.value=true;try{const params={page:page.value,page_size:20};if(f.status)params.status=f.status;const res=await getOrders(params);orders.value=res.data?.items||[];total.value=res.data?.total||0}finally{loading.value=false}}
+async function fetch(){loading.value=true;try{const params={page:page.value,page_size:20};if(f.status)params.status=f.status;const res=await getOrders(params);orders.value=res.data?.items||[];total.value=res.data?.total||0}catch{orders.value=[];total.value=0}finally{loading.value=false}}
 function openShip(o){showShip.value=o;sf.tracking_no='SF'+Date.now().toString().slice(-10)}
-async function doShip(){if(!showShip.value)return;await shipOrder(showShip.value.id,{company:sf.company,tracking_no:sf.tracking_no});showShip.value=null;ElMessage.success('发货成功');fetch()}
+async function doShip(){if(!showShip.value)return;try{await shipOrder(showShip.value.id,{company:sf.company,tracking_no:sf.tracking_no});showShip.value=null;ElMessage.success('发货成功');fetch()}catch{/* error shown by interceptor */}}
 onMounted(fetch)
 </script>

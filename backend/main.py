@@ -1,14 +1,17 @@
 """
 FastAPI 应用入口
-- 注册 CORS + lifespan (超时检测器)
+- 注册 CORS + lifespan (超时检测器) + 请求追踪
 - create_all(checkfirst=True)
 """
 import asyncio
+import time
+import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.database.session import Base, engine
@@ -69,18 +72,59 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — 开发用 * ，生产通过 .env 限制
+cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 请求追踪中间件 — 注入 X-Request-ID
+class RequestIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        rid = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+        request.state.request_id = rid
+        start = time.time()
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = rid
+        response.headers["X-Response-Time"] = f"{(time.time() - start)*1000:.0f}ms"
+        return response
+
+app.add_middleware(RequestIDMiddleware)
+
 
 @app.get(f"{settings.API_PREFIX}/health", tags=["系统"])
 def health_check():
-    return {"code": 200, "msg": "ok", "data": {"service": "running"}}
+    """聚合健康检查：DB + Redis + ChromaDB 连通性。"""
+    status = {"service": "running", "db": "unknown", "redis": "unknown", "chromadb": "unknown"}
+    # DB
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        status["db"] = "connected"
+    except Exception as e:
+        status["db"] = f"error: {e}"
+    # Redis
+    try:
+        from app.core.redis_client import get_redis
+        r = get_redis()
+        if r.ping():
+            status["redis"] = "connected"
+    except Exception as e:
+        status["redis"] = f"error: {e}"
+    # ChromaDB
+    try:
+        from app.services.chroma_client import _get_client
+        _get_client().heartbeat()
+        status["chromadb"] = "connected"
+    except Exception as e:
+        status["chromadb"] = f"error: {e}"
+
+    healthy = all(v == "connected" for v in [status["db"], status["redis"], status["chromadb"]])
+    return {"code": 200 if healthy else 503, "msg": "healthy" if healthy else "degraded", "data": status}
 
 
 @app.get(f"{settings.API_PREFIX}/health/db", tags=["系统"])
@@ -124,5 +168,6 @@ app.include_router(conversations.ws_router)
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8010)
+    import os
+    port = int(os.getenv("PORT", "8012"))
+    uvicorn.run(app, host="0.0.0.0", port=port)

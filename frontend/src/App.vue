@@ -1,5 +1,7 @@
 <template>
   <div>
+    <ParticleBackground :enabled="true" />
+    <CursorGlow />
     <div v-if="hasError" style="padding:40px;color:#e74c3c;font-family:monospace;white-space:pre-wrap;font-size:14px">
       <h2>App Error</h2>
       <p>{{ errorMessage }}</p>
@@ -11,6 +13,9 @@
 
 <script setup>
 import { ref, onErrorCaptured } from 'vue'
+import ParticleBackground from './components/ParticleBackground.vue'
+import CursorGlow from './components/CursorGlow.vue'
+
 const hasError = ref(false)
 const errorMessage = ref('')
 const errorStack = ref('')

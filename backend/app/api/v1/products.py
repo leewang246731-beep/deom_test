@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.platform_connector import get_platform_connector
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -21,9 +21,11 @@ from app.schemas import ProductCreate, ProductUpdate
 router = APIRouter(prefix="/products", tags=["商品库"])
 
 
-def _merchant_shop_ids(db: Session, merchant_id: int) -> list:
-    return [r[0] for r in db.query(PlatformShop.id).filter(
-        PlatformShop.merchant_id == merchant_id).all()]
+def _merchant_shop_ids(db: Session, merchant_id: int | None) -> list:
+    q = db.query(PlatformShop.id)
+    if merchant_id is not None:
+        q = q.filter(PlatformShop.merchant_id == merchant_id)
+    return [r[0] for r in q.all()]
 
 
 def _product_dict(p: ExternalProduct) -> dict:
@@ -41,7 +43,7 @@ def list_products(
     shop_id: int = Query(None), category: str = Query(None),
     keyword: str = Query(None), price_min: float = Query(None), price_max: float = Query(None),
     page_no: int = Query(1, alias="page"), page_size: int = Query(20),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     if not shop_ids:
@@ -66,33 +68,39 @@ def list_products(
 def search_products(
     q: str = Query(..., description="自然语言查询"),
     shop_id: int = Query(None),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
-    """语义搜索：向量检索 + 可选店铺过滤（缺口5）。"""
+    """语义搜索：向量检索 + 可选店铺过滤。向量为空时自动降级为 SQL LIKE 搜索。"""
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     if shop_id and shop_id in shop_ids:
         shop_ids = [shop_id]
     shop_map = {s.id: s.shop_name for s in db.query(PlatformShop).filter(
         PlatformShop.id.in_(shop_ids)).all()} if shop_ids else {}
     results = []
+    search_mode = "semantic"
     try:
         from app.services.ai_suggest import semantic_search_products
         results = semantic_search_products(current.merchant_id, q, shop_ids, top_k=10)
     except Exception:
+        results = []
+    # 向量搜索无结果时，降级为 SQL LIKE 模糊搜索
+    if not results:
+        search_mode = "fallback_like"
         items = db.query(ExternalProduct).filter(
             ExternalProduct.shop_id.in_(shop_ids),
             ExternalProduct.title.like(f"%{q}%"),
         ).limit(10).all() if shop_ids else []
-        results = [{"id": p.id, "title": p.title, "score": None, "shop_id": p.shop_id} for p in items]
+        results = [{"id": p.id, "title": p.title, "price": float(p.price),
+                     "score": None, "shop_id": p.shop_id} for p in items]
     for r in results:
         r["shop_name"] = shop_map.get(r.get("shop_id"), "")
-    return ok({"query": q, "results": results})
+    return ok({"query": q, "results": results, "mode": search_mode})
 
 
 @router.get("/export")
 def export_products(
     shop_id: int = Query(None), keyword: str = Query(None),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     q = db.query(ExternalProduct).filter(ExternalProduct.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalProduct).filter(False)
@@ -111,7 +119,7 @@ def export_products(
 
 
 @router.get("/{product_id}")
-def product_detail(product_id: int, current: CurrentUser = Depends(get_current_merchant),
+def product_detail(product_id: int, current: CurrentUser = Depends(get_current_user),
                    db: Session = Depends(get_db)):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     p = db.query(ExternalProduct).filter(

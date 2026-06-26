@@ -297,11 +297,14 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 
 | 层 | 技术 |
 |------|------|
-| 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5 |
+| 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5, TypeScript 5.5 |
 | 后端 | Python 3.13, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2.10 |
 | 数据库 | MySQL 8.0 (PyMySQL), Redis, ChromaDB (嵌入式 PersistentClient) |
-| AI | DashScope text-embedding-v4, qwen-max, LangChain + LangGraph Agent |
+| AI | DashScope text-embedding-v4 / qwen-max / gte-rerank-v2, LangChain + LangGraph |
+| 多智能体 | Supervisor-Worker 架构 (LangGraph StateGraph), 6 专家 Agent |
+| RAG | 多格式加载器 (PDF/DOCX/XLSX/PPTX), tiktoken 分块, HyDE, 自纠错 |
 | 调度 | APScheduler (AsyncIOScheduler) |
+| 测试 | Playwright (E2E), pytest, AST body:dict 扫描器 |
 | Mock | Faker 33 (zh_CN) |
 
 ---
@@ -316,12 +319,50 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 
 ---
 
+## AI 多智能体架构 (v2.1.0)
+
+```
+买家问题
+  │
+  ▼
+SupervisorAgent (主管)
+  │ classify_intent (意图分类)
+  ▼
+route_experts (路由分发)
+  │
+  ├── OrderAgent (订单查询/退款)
+  ├── LogisticsAgent (物流追踪)
+  ├── ProductAgent (商品搜索/库存)
+  ├── TicketAgent (工单历史/优先级)
+  ├── RAGAgent (知识库检索)
+  └── ReplyAgent (结果聚合→最终回复)
+```
+
+## 企业级 RAG 全链路 (v2.1.0)
+
+```
+文档上传 (PDF/DOCX/XLSX/PPTX/MD/TXT)
+  → SmartChunker (tiktoken cl100k_base, 384 token)
+  → ChromaDB + BM25 混合索引
+
+用户提问
+  → Query Optimize (Rewrite + HyDE + Step-Back)
+  → Hybrid Retrieve (Dense + BM25 + RRF)
+  → CRAG Evaluate (LLM 相关性判断)
+  → gte-rerank-v2 API 重排序
+  → Sentence-level Context Compression
+  → LLM Generate (SSE Streaming)
+  → Self-Correction (Fact-check + 幻觉检测)
+  → Quality Monitor (Trace Logging)
+```
+
 ## 外部对接
 
 对接 [vMall 虚拟电商平台](../vmall_system/README.md) 获取真实业务数据：
 - 店铺绑定 → 生成 Token → vmall 端确认 → `/sync` 拉取数据
 - 物流感知 AI：`/ai/suggest` 自动查询 vMall 物流状态注入 Prompt
 - Webhook：接收 ORDER_PAID / LOGISTICS_UPDATED / REFUND_SUCCESS 事件
+- 跨系统桥接 C1-C8 全部代码完备
 
 ---
 
@@ -342,6 +383,52 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 ---
 
 ## 变更记录
+
+### v2.1.0 (2026-06-26) — 全栈工程化 + 多智能体 + 企业级 RAG
+
+**Stage 1: 前端/后端工程化硬化**
+- **新增**: `useRequest.ts` 统一请求层（泛型+防抖+重试+确认）
+- **新增**: OpenAPI → TypeScript 类型生成 (`npm run generate:api`)
+- **新增**: AST `body:dict` 硬拦截扫描器 (`python backend/scripts/check_body_dict.py`)
+- **改进**: API 拦截器错误分类（400/401/403/404/409/429/500）
+- **改进**: Token 自动刷新（401 → refresh_token → 重试原请求）
+- **改进**: Products.vue 搜索 300ms 防抖
+
+**Stage 2: 多智能体系统 (Supervisor-Worker)**
+- **新增**: `SupervisorAgent` — LangGraph StateGraph 主管编排（classify→route→dispatch→aggregate）
+- **新增**: 6 专家 Agent (Order/Logistics/Product/Ticket/RAG/Reply)
+- **新增**: `BaseExpertAgent` 抽象基类，支持工具构建+ReAct 执行
+- **重构**: `agent.py` 统一入口，自动检测 Agent 类型
+
+**Stage 3: 企业级 RAG 全链路**
+- **新增**: 多格式文档加载器 (PDF/DOCX/XLSX/PPTX/MD/TXT)
+- **新增**: tiktoken 精确分块器 (替代 `len/1.3` 启发式)
+- **新增**: DashScope gte-rerank-v2 重排序 (替代余弦)
+- **新增**: 句子级上下文压缩
+- **新增**: HyDE 查询扩展 (原关闭，现已启用)
+- **新增**: Self-Correction 自纠错 (事实核查+幻觉检测)
+- **新增**: Quality Monitor 质量追踪
+- **改进**: `/kb/ask` 管道升级为 9 步完整链路
+
+**Stage 4: E2E + 体验**
+- **新增**: Playwright E2E 测试 (5 核心流程)
+- **新增**: `useFeedback.ts` 统一反馈封装
+
+**生产安全**
+- **新增**: 可配置 CORS (`.env` 控制)
+- **新增**: 登录频率限制 (Redis, 10次/分钟/IP)
+- **新增**: RequestID 追踪中间件
+- **新增**: 分页参数自动修正 (`clamp_pagination`)
+- **修复**: Webhook 投递日志持久化
+- **修复**: C6 消息桥接 `c.shop` AttributeError
+
+**DevOps**
+- **新增**: `docker-compose.yml` 统一部署
+- **新增**: `Dockerfile` (SaaS + vMall)
+- **新增**: `verify.py` 系统验证 (10 项检查)
+- **新增**: `test_api_full.py` 全量 API 测试 (94 端点)
+- **新增**: `DEPLOYMENT.md` 部署指南
+- **更新**: `test_e2e_smoke.py` 扩展至 69 用例
 
 ### v2.0.1 (2026-06-26)
 

@@ -82,17 +82,40 @@ async function fetch() {
     const res = await getOrders(params)
     orders.value = res.data?.items || []
     total.value = res.data?.total || 0
-  } catch { /* */ } finally { loading.value = false }
+  } catch {
+    orders.value = []
+    total.value = 0
+  } finally { loading.value = false }
 }
 
 function showDetail(row) { detail.value = row; detailVisible.value = true }
-async function handleRefund(id) { try { await refundOrder(id); ElMessage.success('售后完成'); fetch() } catch { /* */ } }
+
+async function handleRefund(id) {
+  try {
+    await refundOrder(id)
+    ElMessage.success('售后处理完成')
+    fetch()
+  } catch {
+    // error shown by interceptor
+  }
+}
+
 async function handleRemind() {
   reminding.value = true
   try {
-    const res = await remindPayment(1) // shop 1 for demo
-    ElMessage.success(`已生成 ${res.data?.count || 0} 条催单话术`)
-  } catch { /* */ } finally { reminding.value = false }
+    // Use selected shop from filter, or first available shop
+    const shopId = filters.shop_id || shops.value[0]?.id
+    if (!shopId) { ElMessage.warning('请先选择店铺'); reminding.value = false; return }
+    const res = await remindPayment(shopId)
+    const count = res.data?.count || 0
+    if (count > 0) {
+      ElMessage.success(`已生成 ${count} 条催单话术`)
+    } else {
+      ElMessage.info('当前无待付款订单')
+    }
+  } catch {
+    // error shown by interceptor
+  } finally { reminding.value = false }
 }
 
 function handleExport() {
@@ -103,7 +126,12 @@ function handleExport() {
 }
 
 onMounted(async () => {
-  try { const res = await getShops(); shops.value = res.data || [] } catch { /* ok */ }
+  try {
+    const res = await getShops()
+    shops.value = res.data || []
+  } catch {
+    // shops list not critical
+  }
   fetch()
 })
 </script>

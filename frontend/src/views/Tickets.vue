@@ -78,6 +78,8 @@ async function fetch() {
     if (f.assigned_to) params.assigned_to = f.assigned_to
     const res = await getTickets(params)
     tickets.value = res.data?.items || []; total.value = res.data?.total || 0
+  } catch {
+    tickets.value = []; total.value = 0
   } finally { loading.value = false }
 }
 
@@ -87,27 +89,60 @@ function goDetail(row) { router.push(`/tickets/${row.id}`) }
 async function handleCreate() {
   if (!create.title.trim()) return ElMessage.warning('请输入标题')
   creating.value = true
-  try { const r = await createTicket({ ...create }); showCreate.value = false; ElMessage.success(`工单 ${r.data.ticket_no} 已创建`); fetch() } finally { creating.value = false }
+  try {
+    const r = await createTicket({ ...create })
+    showCreate.value = false
+    Object.assign(create, { title: '', description: '', priority: 'P3', source: 'manual', source_id: null })
+    ElMessage.success(`工单 ${r.data?.ticket_no || ''} 已创建`)
+    fetch()
+  } catch {
+    // error shown by interceptor
+  } finally { creating.value = false }
 }
 
 async function autoClassify() {
   if (!create.title.trim()) return ElMessage.warning('请先输入标题')
   aiClassifying.value = true
-  try { const r = await preClassify({ title: create.title, description: create.description }); const d = r.data; aiResult.value = `优先级: ${d.suggested_priority}`; create.priority = d.suggested_priority } finally { aiClassifying.value = false }
+  try {
+    const r = await preClassify({ title: create.title, description: create.description })
+    const d = r.data
+    aiResult.value = `建议: 优先级${d.suggested_priority}`
+    create.priority = d.suggested_priority
+  } catch {
+    aiResult.value = '分类失败，请手动选择'
+  } finally { aiClassifying.value = false }
 }
 
 function onSelectChange(rows) { selectedRows.value = rows }
 
 async function handleBatchAssign() {
   const ids = selectedRows.value.map(r => r.id)
-  await ElMessageBox.confirm(`确定将 ${ids.length} 个工单分配给自己？`, '确认')
-  try { await batchTickets({ action: 'assign', ticket_ids: ids }); ElMessage.success('已分配'); selectedRows.value = []; fetch() } catch {}
+  try {
+    await ElMessageBox.confirm(`确定将 ${ids.length} 个工单分配给自己？`, '确认')
+  } catch { return }
+  try {
+    await batchTickets({ action: 'assign', ticket_ids: ids })
+    ElMessage.success(`已分配 ${ids.length} 个工单`)
+    selectedRows.value = []
+    fetch()
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 async function handleBatchClose() {
   const ids = selectedRows.value.map(r => r.id)
-  await ElMessageBox.confirm(`确定批量关闭 ${ids.length} 个工单？`, '危险操作', { type: 'warning' })
-  try { await batchTickets({ action: 'close', ticket_ids: ids }); ElMessage.success('已关闭'); selectedRows.value = []; fetch() } catch {}
+  try {
+    await ElMessageBox.confirm(`确定批量关闭 ${ids.length} 个工单？`, '危险操作', { type: 'warning' })
+  } catch { return }
+  try {
+    await batchTickets({ action: 'close', ticket_ids: ids })
+    ElMessage.success(`已关闭 ${ids.length} 个工单`)
+    selectedRows.value = []
+    fetch()
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 function handleExport() {
@@ -120,6 +155,15 @@ function handleExport() {
 
 onMounted(async () => {
   fetch()
-  try { const g = await getSkillGroups(); const users = new Map(); (g.data||[]).forEach(grp => (grp.members||[]).forEach(m => users.set(m.user_id, {id:m.user_id, label:m.display_name}))); userOptions.value = [...users.values()] } catch { /* */ }
+  try {
+    const g = await getSkillGroups()
+    const users = new Map()
+    ;(g.data || []).forEach(grp =>
+      (grp.members || []).forEach(m => users.set(m.user_id, { id: m.user_id, label: m.display_name }))
+    )
+    userOptions.value = [...users.values()]
+  } catch {
+    // user list not critical
+  }
 })
 </script>

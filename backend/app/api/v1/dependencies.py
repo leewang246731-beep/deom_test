@@ -95,8 +95,24 @@ def get_current_merchant(
 
 
 def require_roles(*roles: str):
-    """角色守卫工厂（商户端）：检查 merchant user 的 role 是否在允许列表中。"""
-    def checker(current: CurrentUser = Depends(get_current_merchant)) -> CurrentUser:
+    """
+    统一角色守卫：接受平台 token 和商户 token 双通道。
+    - 平台 super_admin → 拥有所有权限
+    - 平台 manager → 按 roles 参数检查
+    - 商户 token → 按 roles 参数检查（需通过 get_current_merchant）
+    """
+    def checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        # 平台 super_admin 拥有最高权限，直接放行
+        if current.token_type == "platform" and current.role == "super_admin":
+            return current
+        # 平台其他角色按 roles 检查
+        if current.token_type == "platform":
+            if roles and current.role not in roles:
+                raise HTTPException(status_code=403, detail={"code": 40301, "msg": "权限不足"})
+            return current
+        # 商户 token：必须有 merchant_id，且 role 在允许列表中
+        if current.merchant_id is None:
+            raise HTTPException(status_code=401, detail={"code": 40102, "msg": "不是商户员工"})
         if roles and current.role not in roles:
             raise HTTPException(status_code=403, detail={"code": 40301, "msg": "权限不足"})
         return current
@@ -104,7 +120,7 @@ def require_roles(*roles: str):
 
 
 def require_platform_roles(*roles: str):
-    """角色守卫工厂（平台端）：检查 platform user 的 role 是否在允许列表中。"""
+    """角色守卫工厂（平台端）：仅允许 platform token。"""
     def checker(current: CurrentUser = Depends(get_platform_user)) -> CurrentUser:
         if roles and current.role not in roles:
             raise HTTPException(status_code=403, detail={"code": 40301, "msg": "权限不足"})

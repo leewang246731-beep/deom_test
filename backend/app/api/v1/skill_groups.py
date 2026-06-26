@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.merchant_user import MerchantUser
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/skill-groups", tags=["技能组"])
 
 
 @router.get("")
-def list_groups(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def list_groups(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     groups = db.query(SkillGroup).filter(SkillGroup.merchant_id == current.merchant_id).all()
     result = []
     for g in groups:

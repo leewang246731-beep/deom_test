@@ -24,6 +24,25 @@ def _verify_key(x_api_key: str = Header(None)):
     return True
 
 
+def _fetch_vmall_token(vmall_url: str, merchant_id: int, shop_id: int) -> str:
+    """从 vMall 获取 OpenAPI access_token，失败返回空字符串。"""
+    try:
+        import httpx
+        with httpx.Client(timeout=10) as client:
+            resp = client.post(
+                f"{vmall_url}/openapi/auth",
+                json={"merchant_id": merchant_id, "shop_id": shop_id},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                # vMall 返回 {code, data: {access_token, expires_in, shop_id}, msg}
+                inner = data.get("data", data)
+                return inner.get("access_token", "")
+    except Exception:
+        pass
+    return ""
+
+
 @router.post("/generate-bind-token")
 def generate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = Depends(require_roles("admin", "manager")),
                         db: Session = Depends(get_db)):
@@ -73,15 +92,28 @@ def confirm_bind(body: ConfirmBindRequest, _: bool = Depends(_verify_key), db: S
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "无效的绑定 token"})
 
     if shop.bind_status == "active":
+        # 已绑定但可能缺少 access_token，尝试补充
+        if not shop.access_token and body.vmall_url:
+            token = _fetch_vmall_token(body.vmall_url, shop.merchant_id, shop.id)
+            if token:
+                shop.access_token = token
+                shop.shop_url = body.vmall_url or shop.shop_url
+                db.commit()
         return ok({
             "saas_merchant_id": shop.merchant_id,
             "saas_shop_id": shop.id,
             "shop_name": shop.shop_name,
             "registered_at": datetime.now().isoformat(),
+            "has_access_token": bool(shop.access_token),
         })
 
     shop.bind_status = "active"
     shop.shop_url = body.vmall_url or ""
+    # 自动获取 vMall OpenAPI access_token，供后续同步使用
+    if body.vmall_url:
+        token = _fetch_vmall_token(body.vmall_url, shop.merchant_id, shop.id)
+        if token:
+            shop.access_token = token
     db.commit()
 
     return ok({
@@ -89,6 +121,7 @@ def confirm_bind(body: ConfirmBindRequest, _: bool = Depends(_verify_key), db: S
         "saas_shop_id": shop.id,
         "shop_name": shop.shop_name,
         "registered_at": datetime.now().isoformat(),
+        "has_access_token": bool(shop.access_token),
     })
 
 

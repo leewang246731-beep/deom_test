@@ -177,6 +177,8 @@ async function handleAsk() {
     onError(e) {
       messages.value[idx].content = '发生错误: ' + (e.message || e)
       messages.value[idx].streaming = false
+      messages.value[idx].error = true
+      messages.value[idx].retryQuestion = q
       asking.value = false
     },
   })

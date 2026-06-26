@@ -105,8 +105,9 @@ async function fetch() {
   try {
     const res = await getShops()
     connectors.value = res.data || []
-  } catch { /* */ }
-  finally { loading.value = false }
+  } catch {
+    connectors.value = []
+  } finally { loading.value = false }
 }
 
 async function handleBind() {
@@ -118,30 +119,53 @@ async function handleBind() {
     showBind.value = false
     Object.assign(form, { platform_type: 'mock', shop_name: '', shop_url: '' })
     fetch()
-  } catch { /* */ }
-  finally { binding.value = false }
+  } catch {
+    // error shown by interceptor
+  } finally { binding.value = false }
 }
 
 async function handleSync(id) {
   syncingId.value = id
-  try { await syncShop(id); ElMessage.success('同步完成'); fetch() }
-  catch { /* */ }
-  finally { syncingId.value = null }
+  try {
+    const res = await syncShop(id)
+    ElMessage.success(res.msg || '同步完成')
+    fetch()
+  } catch {
+    // error shown by interceptor
+  } finally { syncingId.value = null }
 }
 
 async function handleDelete(row) {
-  await ElMessageBox.confirm(`确定解绑"${row.shop_name}"？将清空该店铺所有数据。`, '危险操作', { type: 'warning' })
-  try { await unbindShop(row.id); ElMessage.success('已解绑'); fetch() } catch { /* */ }
+  try {
+    await ElMessageBox.confirm(`确定解绑"${row.shop_name}"？将清空该店铺所有数据。`, '危险操作', { type: 'warning' })
+  } catch { return }
+  try {
+    await unbindShop(row.id)
+    ElMessage.success('已解绑')
+    fetch()
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 async function loadSched() {
-  try { const r = await getSchedulerStatus(); schedStatus.value = r.data } catch { /* */ }
+  try {
+    const r = await getSchedulerStatus()
+    schedStatus.value = r.data
+  } catch {
+    schedStatus.value = null
+  }
 }
 
 async function handleSyncAll() {
   syncingAll.value = true
-  try { await triggerSyncAll(); ElMessage.success('全量同步已触发'); loadSched() } catch { /* */ }
-  finally { syncingAll.value = false }
+  try {
+    await triggerSyncAll()
+    ElMessage.success('全量同步已触发，请稍后刷新查看结果')
+    loadSched()
+  } catch {
+    // error shown by interceptor
+  } finally { syncingAll.value = false }
 }
 
 fetch()

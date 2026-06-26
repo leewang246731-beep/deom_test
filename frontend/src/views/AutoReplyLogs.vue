@@ -87,6 +87,9 @@ async function fetch() {
     const res = await getAutoReplyLogs(params)
     logs.value = res.data?.items || []
     total.value = res.data?.total || 0
+  } catch {
+    logs.value = []
+    total.value = 0
   } finally { loading.value = false }
 }
 

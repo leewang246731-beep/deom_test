@@ -109,6 +109,9 @@ async function fetch() {
     const res = await getUsers(params)
     users.value = res.data?.items || []
     total.value = res.data?.total || 0
+  } catch {
+    users.value = []
+    total.value = 0
   } finally { loading.value = false }
 }
 
@@ -139,23 +142,29 @@ async function handleSave() {
     if (!data.password) delete data.password
     if (isEdit.value) {
       await updateUser(editId.value, data)
-      ElMessage.success('已更新')
+      ElMessage.success('用户信息已更新')
     } else {
       await createUser(data)
-      ElMessage.success('已创建')
+      ElMessage.success('用户已创建')
     }
     showDialog.value = false
     fetch()
-  } catch { /* */ } finally { saving.value = false }
+  } catch {
+    // error shown by interceptor
+  } finally { saving.value = false }
 }
 
 async function handleDelete(row) {
-  await ElMessageBox.confirm(`确定删除用户"${row.username}"？`, '提示', { type: 'warning' })
+  try {
+    await ElMessageBox.confirm(`确定删除用户"${row.username}"？`, '提示', { type: 'warning' })
+  } catch { return }
   try {
     await deleteUser(row.id)
-    ElMessage.success('已删除')
+    ElMessage.success('用户已删除')
     fetch()
-  } catch { /* */ }
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 fetch()

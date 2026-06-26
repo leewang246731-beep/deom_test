@@ -51,17 +51,17 @@ async function fetchData() {
     const data = await getProducts({ page: page.value, size: size.value })
     list.value = data.items || []
     total.value = data.total || 0
-  } catch { /* handled */ }
+  } catch { list.value = []; total.value = 0 }
   finally { loading.value = false }
 }
 
 async function handleDelete(id) {
-  await ElMessageBox.confirm('确定删除该商品？', '提示', { type: 'warning' })
+  try { await ElMessageBox.confirm('确定删除该商品？', '提示', { type: 'warning' }) } catch { return }
   try {
     await deleteProduct(id)
-    ElMessage.success('删除成功')
+    ElMessage.success('已删除')
     fetchData()
-  } catch { /* handled */ }
+  } catch { /* error shown by interceptor */ }
 }
 
 onMounted(fetchData)

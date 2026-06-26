@@ -30,7 +30,7 @@
       </el-table-column>
       <el-table-column label="操作" min-width="280">
         <template #default="{ row }">
-          <el-button size="small" @click="handleSync(row)">同步</el-button>
+          <el-button size="small" :loading="syncingId === row.id" @click="handleSync(row)">同步</el-button>
           <template v-if="row.platform_type === 'vmall'">
             <el-button v-if="row.bind_status !== 'active'" size="small" type="success" @click="handleGenToken(row)">生成绑定码</el-button>
             <el-button v-else size="small" type="warning" @click="handleShowToken(row)">查看绑定码</el-button>
@@ -100,27 +100,63 @@ const shops = ref([])
 const loading = ref(false)
 const binding = ref(false)
 const regenLoading = ref(false)
+const syncingId = ref(null)
 const showBind = ref(false)
 const showToken = ref(false)
 const tokenData = ref({})
 const currentShopId = ref(null)
 const form = reactive({ shop_name: '', platform_type: 'vmall' })
 
-async function fetch() { loading.value = true; try { const res = await getShops(); shops.value = res.data || [] } catch { /* */ } finally { loading.value = false } }
+async function fetch() {
+  loading.value = true
+  try {
+    const res = await getShops()
+    shops.value = res.data || []
+  } catch {
+    ElMessage.error('加载店铺列表失败')
+  } finally {
+    loading.value = false
+  }
+}
 
 async function handleBind() {
-  if (!form.shop_name) return ElMessage.warning('请输入店铺名称')
+  if (!form.shop_name) { ElMessage.warning('请输入店铺名称'); return }
   binding.value = true
-  try { await bindShop({ ...form }); showBind.value = false; form.shop_name = ''; ElMessage.success('绑定成功'); await fetch() }
-  finally { binding.value = false }
+  try {
+    await bindShop({ ...form })
+    ElMessage.success('店铺绑定成功')
+    showBind.value = false
+    form.shop_name = ''
+    await fetch()
+  } catch {
+    // error shown by interceptor
+  } finally {
+    binding.value = false
+  }
 }
 
 async function handleSync(row) {
-  try { const res = await syncShop(row.id); ElMessage.success(res.msg || '同步完成'); await fetch() }
-  catch { /* */ }
+  syncingId.value = row.id
+  try {
+    const res = await syncShop(row.id)
+    ElMessage.success(res.msg || '同步完成')
+    await fetch()
+  } catch {
+    // error shown by interceptor
+  } finally {
+    syncingId.value = null
+  }
 }
 
-async function handleUnbind(id) { await unbindShop(id); ElMessage.success('已解绑'); await fetch() }
+async function handleUnbind(id) {
+  try {
+    await unbindShop(id)
+    ElMessage.success('店铺已解绑')
+    await fetch()
+  } catch {
+    // error shown by interceptor
+  }
+}
 
 async function handleGenToken(row) {
   currentShopId.value = row.id
@@ -130,12 +166,13 @@ async function handleGenToken(row) {
     showToken.value = true
     ElMessage.success('绑定码已生成')
     await fetch()
-  } catch { /* */ }
+  } catch {
+    // error shown by interceptor
+  }
 }
 
 async function handleShowToken(row) {
   currentShopId.value = row.id
-  // Refresh token data from the shop list entry
   tokenData.value = {
     bind_token: row.bind_token || '',
     bind_status: row.bind_status || 'active',
@@ -152,9 +189,13 @@ async function handleRegenToken() {
     const res = await http.post(`/shops/${currentShopId.value}/regenerate-token`)
     tokenData.value.bind_token = res.data.bind_token
     tokenData.value.bind_status = res.data.bind_status
-    ElMessage.success('已重新生成')
+    ElMessage.success('绑定码已重新生成')
     await fetch()
-  } catch { /* */ } finally { regenLoading.value = false }
+  } catch {
+    // error shown by interceptor
+  } finally {
+    regenLoading.value = false
+  }
 }
 
 function copyText(text) {

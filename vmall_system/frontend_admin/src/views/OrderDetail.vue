@@ -50,6 +50,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { getOrder, shipOrder } from '../api'
 import { ElMessage } from 'element-plus'
 

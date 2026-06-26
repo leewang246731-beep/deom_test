@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     PAGE_SIZE: int = 20
     BCRYPT_ROUNDS: int = 12
 
+    # ===== CORS (生产部署时限制为前端域名) =====
+    CORS_ORIGINS: str = "*"  # 逗号分隔，如 "http://localhost:8093,https://admin.example.com"
+
+    # ===== 登录限流 =====
+    LOGIN_RATE_LIMIT: int = 10  # 每分钟每IP最大尝试次数
+    LOGIN_RATE_WINDOW: int = 60  # 限流窗口（秒）
+
     @property
     def DATABASE_URL(self) -> str:
         """SQLAlchemy 连接串：mysql+pymysql://用户:密码@主机:端口/库名"""

@@ -1,6 +1,7 @@
 """
 SaaS Webhook 消费端点 (接收 vMall 推送)
 处理: ORDER_PAID / ORDER_SHIPPED / ORDER_COMPLETED / LOGISTICS_UPDATED / REFUND_SUCCESS / NEW_MESSAGE
+每次接收均记录到 webhook_delivery_logs 表。
 """
 import json
 from datetime import datetime
@@ -13,6 +14,7 @@ from app.database.session import SessionLocal
 from app.models.external_order import ExternalOrder
 from app.models.conversation import Conversation
 from app.models.platform_shop import PlatformShop
+from app.models.webhook_delivery_log import WebhookDeliveryLog
 
 router = APIRouter(prefix="/webhooks", tags=["Webhook"])
 
@@ -25,6 +27,8 @@ async def vmall_webhook(request: Request):
     data = body.get("data", {})
 
     db = SessionLocal()
+    status = "success"
+    error_msg = None
     try:
         if event == "ORDER_PAID":
             _upsert_order(db, data, "paid")
@@ -40,7 +44,26 @@ async def vmall_webhook(request: Request):
             _handle_message(db, data)
         elif event == "AFTER_SALE_CREATED":
             _upsert_order(db, data, "refunding")
+        else:
+            status = "ignored"
+            error_msg = f"未知事件类型: {event}"
+    except Exception as e:
+        status = "failed"
+        error_msg = str(e)
     finally:
+        # 记录 webhook 投递日志
+        try:
+            db.add(WebhookDeliveryLog(
+                event_type=event or "unknown",
+                payload_json=json.dumps(body, ensure_ascii=False, default=str)[:8000],
+                status=status,
+                response_code=200 if status == "success" else 400,
+                response_body=error_msg[:500] if error_msg else None,
+                created_at=datetime.now(),
+            ))
+            db.commit()
+        except Exception:
+            pass
         db.close()
     return ok(msg="received")
 

@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.product_recommendation_rule import ProductRecommendationRule
@@ -54,7 +54,7 @@ def hot_products(
     shop_id: int = Query(None),
     top_k: int = Query(10),
     range_days: int = Query(7),
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """热门商品榜单。"""
@@ -65,7 +65,7 @@ def hot_products(
 
 @router.get("/rules")
 def list_rules(
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     rules = db.query(ProductRecommendationRule).filter(

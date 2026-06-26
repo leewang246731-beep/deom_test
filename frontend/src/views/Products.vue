@@ -9,7 +9,7 @@
     </div>
     <el-card style="margin-bottom:16px">
       <el-row :gutter="12">
-        <el-col :span="6"><el-input v-model="keyword" placeholder="搜索商品..." clearable @keyup.enter="fetch" /></el-col>
+        <el-col :span="6"><el-input v-model="keyword" placeholder="搜索商品..." clearable @keyup.enter="fetch" @input="onKeywordInput" /></el-col>
         <el-col :span="4"><el-select v-model="filters.shop_id" placeholder="店铺" clearable style="width:100%"><el-option v-for="s in shops" :key="s.id" :label="s.shop_name" :value="s.id" /></el-select></el-col>
         <el-col :span="4"><el-input v-model="filters.price_min" placeholder="最低价" type="number" /></el-col>
         <el-col :span="4"><el-input v-model="filters.price_max" placeholder="最高价" type="number" /></el-col>
@@ -76,85 +76,58 @@
 import { ref, reactive, onMounted } from 'vue'
 import { getProducts, searchProducts, createProduct, updateProduct, deleteProduct, getShops, exportCSV } from '../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRequest, useList, useSubmit } from '../composables/useRequest'
 
-const products = ref([])
-const searchResults = ref([])
+// ---- State ----
 const shops = ref([])
-const loading = ref(false)
-const searching = ref(false)
-const total = ref(0)
+const searchResults = ref([])
+const searchQ = ref('')
 const page = ref(1)
 const keyword = ref('')
-const searchQ = ref('')
 const filters = reactive({ shop_id: null, price_min: null, price_max: null })
-
 const showDialog = ref(false)
 const isEdit = ref(false)
 const editId = ref(null)
-const saving = ref(false)
 const formRef = ref(null)
 const selectedRows = ref([])
-
 const form = reactive({ shop_id: null, title: '', price: 0, stock: 0, description: '', category_path: '', status: 1 })
-const rules = {
-  shop_id: [{ required: true, message: '请选择店铺' }],
-  title: [{ required: true, message: '请输入商品名称' }],
-  price: [{ required: true, message: '请输入价格' }],
-}
+const rules = { shop_id: [{ required: true, message: '请选择店铺' }], title: [{ required: true, message: '请输入商品名称' }], price: [{ required: true, message: '请输入价格' }] }
 
-async function fetch() {
-  loading.value = true; searchResults.value = []
-  try {
+// ---- useRequest: List loading (replaces fetch + loading + try/catch) ----
+const { data: products, loading, total, execute: fetch } = (() => {
+  const data = ref([])
+  const loading = ref(false)
+  const total = ref(0)
+  async function execute() {
+    loading.value = true; searchResults.value = []
     const params = { page: page.value, page_size: 20 }
     if (filters.shop_id) params.shop_id = filters.shop_id
     if (filters.price_min) params.price_min = filters.price_min
     if (filters.price_max) params.price_max = filters.price_max
     if (keyword.value) params.keyword = keyword.value
-    const res = await getProducts(params)
-    products.value = res.data?.items || []
-    total.value = res.data?.total || 0
-  } finally { loading.value = false }
-}
+    const res = await getProducts(params).catch(() => null)
+    data.value = res?.data?.items || []
+    total.value = res?.data?.total || 0
+    loading.value = false
+  }
+  return { data, loading, total, execute }
+})()
 
-async function doSearch() {
-  if (!searchQ.value.trim()) return
-  searching.value = true
-  try {
+// ---- useRequest: Semantic search ----
+const { loading: searching, execute: doSearch } = useRequest(
+  async () => {
+    if (!searchQ.value.trim()) return
     const res = await searchProducts(searchQ.value, filters.shop_id)
     searchResults.value = (res.data?.results || []).map(r => ({ ...r, price: r.price || 0, stock: r.stock || 0, embedding_status: r.embedding_status || 'pending', status: r.status || 1 }))
-  } catch { /* */ } finally { searching.value = false }
-}
+  },
+  null, { toast: null }
+)
 
-function resetFilters() {
-  Object.assign(filters, { shop_id: null, price_min: null, price_max: null })
-  keyword.value = ''; page.value = 1
-  fetch()
-}
-
-function resetForm() {
-  editId.value = null
-  Object.assign(form, { shop_id: null, title: '', price: 0, stock: 0, description: '', category_path: '', status: 1 })
-}
-
-function openCreate() {
-  isEdit.value = false; resetForm(); showDialog.value = true
-}
-
-function openEdit(row) {
-  isEdit.value = true; editId.value = row.id
-  Object.assign(form, {
-    shop_id: row.shop_id, title: row.title, price: row.price,
-    stock: row.stock, description: row.description || '',
-    category_path: row.category_path || '', status: row.status,
-  })
-  showDialog.value = true
-}
-
-async function handleSave() {
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
-  saving.value = true
-  try {
+// ---- useSubmit: Save (create/update) ----
+const { loading: saving, execute: handleSave } = useSubmit(
+  async () => {
+    const valid = await formRef.value.validate().catch(() => false)
+    if (!valid) throw new Error('validation')
     const data = { ...form }
     if (isEdit.value) {
       await updateProduct(editId.value, data)
@@ -165,27 +138,25 @@ async function handleSave() {
     }
     showDialog.value = false
     fetch()
-  } catch { /* error shown by interceptor */ }
-  finally { saving.value = false }
-}
+  },
+  '保存'
+)
 
+// ---- Delete (with confirm) ----
 async function handleDelete(row) {
-  await ElMessageBox.confirm(`确定删除"${row.title}"？`, '提示', { type: 'warning' })
-  try {
-    await deleteProduct(row.id)
-    ElMessage.success('已删除')
-    fetch()
-  } catch { /* */ }
+  try { await ElMessageBox.confirm(`确定删除"${row.title}"？`, '提示', { type: 'warning' }) } catch { return }
+  await deleteProduct(row.id).then(() => { ElMessage.success('已删除'); fetch() }).catch(() => {})
 }
 
+// ---- Utilities ----
+let keywordTimer = null
+function onKeywordInput() { clearTimeout(keywordTimer); keywordTimer = setTimeout(() => { page.value = 1; fetch() }, 300) }
+function resetFilters() { Object.assign(filters, { shop_id: null, price_min: null, price_max: null }); keyword.value = ''; page.value = 1; fetch() }
+function resetForm() { editId.value = null; Object.assign(form, { shop_id: null, title: '', price: 0, stock: 0, description: '', category_path: '', status: 1 }) }
+function openCreate() { isEdit.value = false; resetForm(); showDialog.value = true }
+function openEdit(row) { isEdit.value = true; editId.value = row.id; Object.assign(form, { shop_id: row.shop_id, title: row.title, price: row.price, stock: row.stock, description: row.description || '', category_path: row.category_path || '', status: row.status }); showDialog.value = true }
 function onSelectionChange(rows) { selectedRows.value = rows }
-
-function handleExport() {
-  const p = {}
-  if (filters.shop_id) p.shop_id = filters.shop_id
-  if (keyword.value) p.keyword = keyword.value
-  exportCSV('products', p)
-}
+function handleExport() { const p = {}; if (filters.shop_id) p.shop_id = filters.shop_id; if (keyword.value) p.keyword = keyword.value; exportCSV('products', p) }
 
 onMounted(async () => {
   try { const res = await getShops(); shops.value = res.data || [] } catch { /* */ }

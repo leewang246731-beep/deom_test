@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.redis_client import get_redis, mkey
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -20,9 +20,11 @@ from app.schemas import AICampaignRequest
 router = APIRouter(prefix="/orders", tags=["订单中心"])
 
 
-def _merchant_shop_ids(db: Session, merchant_id: int) -> list:
-    return [r[0] for r in db.query(PlatformShop.id).filter(
-        PlatformShop.merchant_id == merchant_id).all()]
+def _merchant_shop_ids(db: Session, merchant_id: int | None) -> list:
+    q = db.query(PlatformShop.id)
+    if merchant_id is not None:
+        q = q.filter(PlatformShop.merchant_id == merchant_id)
+    return [r[0] for r in q.all()]
 
 
 def _order_dict(o: ExternalOrder) -> dict:
@@ -45,11 +47,11 @@ def list_orders(
     status: str = Query(None),
     page_no: int = Query(1, alias="page"),
     page_size: int = Query(20),
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    if not shop_ids:
+    if not shop_ids and current.merchant_id is not None:
         return page([], 0, page_no, page_size)
     q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids))
     if shop_id:
@@ -62,10 +64,10 @@ def list_orders(
 
 
 @router.get("/pending-payment")
-def pending_payment(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def pending_payment(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     items = db.query(ExternalOrder).filter(
-        ExternalOrder.shop_id.in_(shop_ids) if shop_ids else False,
+        ExternalOrder.shop_id.in_(shop_ids) if shop_ids else True,
         ExternalOrder.status == "pending",
     ).all()
     return ok([_order_dict(o) for o in items])
@@ -90,10 +92,10 @@ def remind_pending(
 @router.get("/export")
 def export_orders(
     shop_id: int = Query(None), status: str = Query(None),
-    current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalOrder).filter(False)
+    q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalOrder)
     if shop_id: q = q.filter(ExternalOrder.shop_id == shop_id)
     if status: q = q.filter(ExternalOrder.status == status)
     rows = q.order_by(ExternalOrder.created_at.desc()).all()
@@ -111,11 +113,11 @@ def export_orders(
 
 
 @router.get("/{order_id}")
-def order_detail(order_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def order_detail(order_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
     o = db.query(ExternalOrder).filter(
         ExternalOrder.id == order_id,
-        ExternalOrder.shop_id.in_(shop_ids) if shop_ids else False,
+        ExternalOrder.shop_id.in_(shop_ids) if shop_ids else True,
     ).first()
     if not o:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "订单不存在"})
@@ -146,6 +148,20 @@ def refund_order(
             raise HTTPException(status_code=409, detail={"code": 40901, "msg": "订单已在售后流程"})
         o.status = "refunded"
         db.commit()
-        return ok({"id": o.id, "status": o.status}, msg="售后成功")
+
+        # C5 跨系统联动：vMall 订单同步通知 vMall 售后审批
+        vmall_result = None
+        try:
+            shop = db.query(PlatformShop).filter(PlatformShop.id == o.shop_id).first()
+            if shop and shop.platform_type == "vmall" and shop.access_token:
+                from app.core.platform_connector.vmall import V3Connector
+                connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+                # 尝试查找对应的售后单并审批
+                sale_id = o.platform_order_id  # vMall 订单号可关联售后
+                vmall_result = connector.approve_after_sale(sale_id, "approve", "SaaS平台审核通过")
+        except Exception:
+            pass  # vMall 通知非关键路径
+
+        return ok({"id": o.id, "status": o.status, "vmall_notified": vmall_result is not None}, msg="售后成功")
     finally:
         r.delete(lock_key)

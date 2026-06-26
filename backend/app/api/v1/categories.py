@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.category import Category
@@ -33,7 +33,7 @@ def _build_tree(cats: list[Category], parent_id: int = None) -> list[dict]:
 
 
 @router.get("")
-def list_categories(current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def list_categories(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     cats = db.query(Category).filter(
         Category.merchant_id == current.merchant_id
     ).order_by(Category.level, Category.sort_order).all()
