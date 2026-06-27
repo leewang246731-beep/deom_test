@@ -71,14 +71,19 @@ def compute_confidence(chunks: list[dict], answer: str) -> float:
 
 
 def build_references(chunks: list[dict]) -> list[dict]:
-    """构建引用列表"""
+    """构建引用列表（向下兼容多前端字段名）"""
     refs = []
     for i, c in enumerate(chunks[:10]):
+        snippet = (c.get("content", "") or "")[:120]
         refs.append({
             "index": i + 1,
             "chunk_id": c.get("chunk_id"),
             "heading": c.get("heading_context") or c.get("meta", {}).get("heading", ""),
-            "content_snippet": (c.get("content", "") or "")[:120],
+            "content_snippet": snippet,
+            # 向下兼容字段：不同前端版本可能读取不同的字段名
+            "chunk_text": snippet,
+            "content": snippet,
+            "text": snippet,
             "score": c.get("fusion_score") or c.get("rerank_score") or c.get("dense_score") or 0.0,
         })
     return refs

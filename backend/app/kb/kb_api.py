@@ -228,15 +228,20 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
                     yield f"data: {json.dumps({'type': 'token', 'content': delta})}\n\n"
                     await asyncio.sleep(0)
 
-            # Step 8: Self-correction (fact-check + re-generate if needed)
+            # Step 8: Self-correction (fact-check + re-generate with max_retries=3)
             corrected = False
+            degraded = False
             if FEATURE.get("self_correction") and full and chunks:
-                check = _self_correction.check(full, chunks)
-                trace.append({"step": "self_correction", "factual": check.get("factual", True)})
-                if check.get("needs_correction"):
-                    full = _self_correction.correct(full, chunks, check.get("unsupported_claims", []))
-                    corrected = True
-                    trace.append({"step": "self_correction", "corrected": True})
+                corr_result = _self_correction.self_correct_generate(full, chunks)
+                full = corr_result["answer"]
+                corrected = corr_result["corrected"]
+                degraded = corr_result["degraded"]
+                trace.append({
+                    "step": "self_correction",
+                    "corrected": corrected,
+                    "retries": corr_result["retries"],
+                    "degraded": degraded,
+                })
 
             latency = int((time.time() - t_start) * 1000)
             confidence = compute_confidence(chunks, full)
@@ -259,7 +264,7 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
             log_qa_trace(mid, user.get("user_id"), query, full, chunks, confidence, latency, trace)
 
             refs = build_references(chunks)
-            yield f"data: {json.dumps({'type': 'done', 'confidence': confidence, 'latency_ms': latency, 'references': refs, 'corrected': corrected, 'trace': trace[-5:]})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'confidence': confidence, 'latency_ms': latency, 'references': refs, 'corrected': corrected, 'degraded': degraded, 'trace': trace[-5:]})}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'msg': str(e)})}\n\n"
 

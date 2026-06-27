@@ -361,7 +361,9 @@
       "Bash(curl -s -X POST http://localhost:8012/api/v1/auth/platform/login -H \"Content-Type: application/json\" -d '{\"username\":\"super_admin\",\"password\":\"123456\"}')",
       "Bash(curl -s -X POST http://localhost:8012/api/v1/tickets -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1MzIiLCJtZXJjaGFudF9pZCI6MTc4LCJyb2xlIjoiYWRtaW4iLCJ0eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzgxOTc5MDc5fQ.sRErV6vmYgT74qnYvEo64x9LKhUc1oj0WJHEdp_nXYA' -H 'Content-Type: application/json' -d '{\"title\":\"测试工单-验证修复\",\"description\":\"验证BUG-002修复\",\"category_id\":1,\"priority\":\"P2\"}')",
       "Bash(docker-compose --profile full up -d)",
-      "Bash(docker-compose --profile full down)"
+      "Bash(docker-compose --profile full down)",
+      "Bash(python -m pytest tests/test_rag_pipeline.py -v)",
+      "Bash(python -m unittest tests.test_rag_pipeline -v)"
     ],
     "additionalDirectories": [
       "d:\\d\\demo_test\\backend\\app\\api"
