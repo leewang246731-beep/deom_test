@@ -1,5 +1,5 @@
 """Pydantic 请求/响应模型"""
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 
 
@@ -80,7 +80,7 @@ class BuyerRecommendationRequest(BaseModel):
 
 # ===== 工单 =====
 class TicketCreate(BaseModel):
-    title: str
+    title: str = Field(..., min_length=1, description="工单标题")
     description: Optional[str] = ""
     priority: Optional[str] = "P3"
     source: Optional[str] = "manual"

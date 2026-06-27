@@ -26,6 +26,7 @@ async def _timeout_checker():
         try:
             from app.database.session import SessionLocal
             from app.models.conversation import Conversation
+            from app.models.platform_shop import PlatformShop
             from app.models.service_mode import ServiceModeConfig
             db = SessionLocal()
             # 找超时会话
@@ -35,8 +36,13 @@ async def _timeout_checker():
                 Conversation.handled_status == "pending",
             ).all()
             for conv in expired:
+                # 通过 shop → merchant 查找对应商户的服务模式配置
+                merchant_id = None
+                shop = db.query(PlatformShop).filter(PlatformShop.id == conv.shop_id).first()
+                if shop:
+                    merchant_id = shop.merchant_id
                 cfg = db.query(ServiceModeConfig).filter(
-                    ServiceModeConfig.merchant_id == 1).first()
+                    ServiceModeConfig.merchant_id == merchant_id).first() if merchant_id else None
                 fallback = cfg.fallback_template if cfg else "亲，客服正在为您查询中，请稍等~"
                 # 追加兜底话术到 messages_json
                 msgs = conv.messages_json or []
@@ -47,7 +53,7 @@ async def _timeout_checker():
                 conv.auto_reply_count = (conv.auto_reply_count or 0) + 1
                 # 日志
                 from app.services.mode_engine import log_auto_reply
-                log_auto_reply(db, conv.id, 1, "copilot", "超时兜底", fallback, 0.0, "fallback_sent")
+                log_auto_reply(db, conv.id, merchant_id or 1, "copilot", "超时兜底", fallback, 0.0, "fallback_sent")
             db.commit()
             db.close()
         except Exception:
@@ -98,8 +104,8 @@ app.add_middleware(RequestIDMiddleware)
 
 @app.get(f"{settings.API_PREFIX}/health", tags=["系统"])
 def health_check():
-    """聚合健康检查：DB + Redis + ChromaDB 连通性。"""
-    status = {"service": "running", "db": "unknown", "redis": "unknown", "chromadb": "unknown"}
+    """聚合健康检查：DB + Redis + ChromaDB + LLM 连通性。"""
+    status = {"service": "running", "db": "unknown", "redis": "unknown", "chromadb": "unknown", "llm": "unknown"}
     # DB
     try:
         with engine.connect() as conn:
@@ -122,8 +128,16 @@ def health_check():
         status["chromadb"] = "connected"
     except Exception as e:
         status["chromadb"] = f"error: {e}"
+    # LLM (DashScope OpenAI 兼容模式)
+    try:
+        from app.services.llm import chat
+        test_resp = chat([{"role": "user", "content": "ping"}])
+        status["llm"] = "connected" if test_resp else "empty_response"
+    except Exception as e:
+        status["llm"] = f"error: {e}"
 
-    healthy = all(v == "connected" for v in [status["db"], status["redis"], status["chromadb"]])
+    critical = ["db", "redis", "chromadb"]
+    healthy = all(status.get(k) == "connected" for k in critical)
     return {"code": 200 if healthy else 503, "msg": "healthy" if healthy else "degraded", "data": status}
 
 

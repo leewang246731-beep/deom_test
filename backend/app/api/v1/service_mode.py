@@ -81,7 +81,7 @@ def takeover(conv_id: int, current: CurrentUser = Depends(get_current_merchant),
 
 
 @router.get("/auto-reply-logs")
-def list_logs(page_no: int = Query(1, alias="page"), page_size: int = Query(20),
+def list_logs(page_no: int = Query(1, alias="page", ge=1), page_size: int = Query(20, ge=1, le=200),
               action: str = Query(None),
               current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
     q = db.query(AutoReplyLog)

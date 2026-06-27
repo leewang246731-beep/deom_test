@@ -92,9 +92,8 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import { getShops, bindShop, unbindShop, syncShop } from '../api'
+import { getShops, bindShop, unbindShop, syncShop, generateBindToken, regenerateToken } from '../api'
 import { ElMessage } from 'element-plus'
-import http from '../api/request'
 
 const shops = ref([])
 const loading = ref(false)
@@ -161,8 +160,8 @@ async function handleUnbind(id) {
 async function handleGenToken(row) {
   currentShopId.value = row.id
   try {
-    const res = await http.post(`/shops/${row.id}/bind-token`)
-    tokenData.value = res.data
+    const res = await generateBindToken(row.id)
+    tokenData.value = { ...res.data, saas_url: tokenData.value.saas_url || 'http://127.0.0.1:8010' }
     showToken.value = true
     ElMessage.success('绑定码已生成')
     await fetch()
@@ -186,7 +185,7 @@ async function handleRegenToken() {
   if (!currentShopId.value) return
   regenLoading.value = true
   try {
-    const res = await http.post(`/shops/${currentShopId.value}/regenerate-token`)
+    const res = await regenerateToken(currentShopId.value)
     tokenData.value.bind_token = res.data.bind_token
     tokenData.value.bind_status = res.data.bind_status
     ElMessage.success('绑定码已重新生成')

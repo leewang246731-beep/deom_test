@@ -35,7 +35,7 @@
         <el-form-item label="描述"><el-input v-model="groupForm.description" type="textarea" /></el-form-item>
         <el-form-item label="状态"><el-switch v-model="groupForm.is_active" active-text="启用" inactive-text="停用" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="showGroupDialog=false">取消</el-button><el-button type="primary" @click="handleSaveGroup">保存</el-button></template>
+      <template #footer><el-button @click="showGroupDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="handleSaveGroup">保存</el-button></template>
     </el-dialog>
 
     <!-- Member Dialog -->
@@ -55,7 +55,7 @@
           </el-select>
         </el-form-item>
       </el-form>
-      <template #footer><el-button @click="showMemberDialog=false">取消</el-button><el-button type="primary" @click="handleAddMember">添加</el-button></template>
+      <template #footer><el-button @click="showMemberDialog=false">取消</el-button><el-button type="primary" :loading="addingMember" @click="handleAddMember">添加</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -67,6 +67,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const groups = ref([]); const userOptions = ref([]); const loading = ref(false)
 const showGroupDialog = ref(false); const showMemberDialog = ref(false)
+const saving = ref(false); const addingMember = ref(false)
 const editGroupId = ref(null); const addMemberGid = ref(null)
 
 const groupForm = reactive({ name: '', description: '', is_active: true })
@@ -83,11 +84,12 @@ function openEditGroup(g) { editGroupId.value = g.id; Object.assign(groupForm, {
 
 async function handleSaveGroup() {
   if (!groupForm.name.trim()) return ElMessage.warning('请输入名称')
+  saving.value = true
   try {
     const data = { name: groupForm.name, description: groupForm.description, is_active: groupForm.is_active ? 1 : 0 }
     if (editGroupId.value) { await updateSkillGroup(editGroupId.value, data) } else { await createSkillGroup(data) }
     ElMessage.success('已保存'); showGroupDialog.value = false; fetch()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function handleDeleteGroup(id) {
@@ -99,10 +101,11 @@ function openAddMember(g) { addMemberGid.value = g.id; Object.assign(memberForm,
 
 async function handleAddMember() {
   if (!memberForm.user_id) return ElMessage.warning('请选择客服')
+  addingMember.value = true
   try {
     await addSkillMember(addMemberGid.value, memberForm)
     ElMessage.success('已添加'); showMemberDialog.value = false; fetch()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { addingMember.value = false }
 }
 
 async function handleRemoveMember(gid, uid) {

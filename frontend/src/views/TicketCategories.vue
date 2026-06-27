@@ -4,8 +4,11 @@
       <h3 style="margin:0">工单分类管理</h3>
       <el-button type="primary" @click="openAdd()">新建分类</el-button>
     </div>
-    <el-card>
-      <el-tree :data="tree" :props="{ children: 'children', label: 'name' }" node-key="id" default-expand-all highlight-current>
+    <el-card v-loading="loading">
+      <el-empty v-if="!loading && !tree.length" description="暂无分类，请先创建顶层分类">
+        <el-button type="primary" @click="openAdd()">新建分类</el-button>
+      </el-empty>
+      <el-tree v-else :data="tree" :props="{ children: 'children', label: 'name' }" node-key="id" default-expand-all highlight-current>
         <template #default="{ data }">
           <span style="font-size:14px">{{ data.name }}</span>
           <span style="margin-left:8px;color:#909399;font-size:12px">Lv{{ data.level }}</span>
@@ -23,7 +26,7 @@
         <el-form-item label="名称"><el-input v-model="form.name" placeholder="分类名称" /></el-form-item>
         <el-form-item label="父级" v-if="form.parent_id"><el-input :model-value="parentName" disabled /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="showDialog = false">取消</el-button><el-button type="primary" @click="handleSave">保存</el-button></template>
+      <template #footer><el-button @click="showDialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="handleSave">保存</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -34,14 +37,18 @@ import { getTicketCategories, createTicketCategory, updateTicketCategory, delete
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const tree = ref([])
+const loading = ref(false)
 const showDialog = ref(false)
 const isEdit = ref(false)
 const editId = ref(null)
+const saving = ref(false)
 const form = ref({ name: '', parent_id: null })
 const parentName = ref('')
 
 async function fetch() {
+  loading.value = true
   try { tree.value = (await getTicketCategories()).data || [] } catch { tree.value = [] }
+  finally { loading.value = false }
 }
 
 function openAdd(parent) {
@@ -60,11 +67,12 @@ function openEdit(data) {
 
 async function handleSave() {
   if (!form.value.name.trim()) return ElMessage.warning('请输入分类名称')
+  saving.value = true
   try {
     if (isEdit.value) { await updateTicketCategory(editId.value, { name: form.value.name }); ElMessage.success('分类已更新') }
     else { await createTicketCategory({ name: form.value.name, parent_id: form.value.parent_id || undefined }); ElMessage.success('分类已创建') }
     showDialog.value = false; fetch()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function handleDelete(data) {

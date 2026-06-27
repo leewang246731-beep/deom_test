@@ -4,8 +4,11 @@
       <h3 style="margin:0">分类管理</h3>
       <el-button type="primary" @click="openAdd()">新建分类</el-button>
     </div>
-    <el-card>
-      <el-tree :data="tree" :props="{ children: 'children', label: 'name' }" node-key="id" default-expand-all highlight-current>
+    <el-card v-loading="loading">
+      <el-empty v-if="!loading && !tree.length" description="暂无分类，请先创建">
+        <el-button type="primary" @click="openAdd()">新建分类</el-button>
+      </el-empty>
+      <el-tree v-else :data="tree" :props="{ children: 'children', label: 'name' }" node-key="id" default-expand-all highlight-current>
         <template #default="{ data }">
           <span style="font-size:14px">{{ data.name }}</span>
           <span style="margin-left:8px;color:#909399;font-size:12px">Lv{{ data.level }}</span>
@@ -25,7 +28,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -37,14 +40,18 @@ import { getCategories, createCategory, updateCategory, deleteCategory } from '.
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const tree = ref([])
+const loading = ref(false)
 const showDialog = ref(false)
 const isEdit = ref(false)
 const editCatId = ref(null)
+const saving = ref(false)
 const form = ref({ name: '', parent_id: null })
 const parentName = ref('')
 
 async function fetch() {
+  loading.value = true
   try { const res = await getCategories(); tree.value = res.data || [] } catch { tree.value = [] }
+  finally { loading.value = false }
 }
 
 function openAdd(parent) {
@@ -63,6 +70,7 @@ function openEdit(data) {
 
 async function handleSave() {
   if (!form.value.name.trim()) return ElMessage.warning('请输入分类名称')
+  saving.value = true
   try {
     if (isEdit.value) {
       await updateCategory(editCatId.value, { name: form.value.name })
@@ -72,7 +80,7 @@ async function handleSave() {
       ElMessage.success('分类已创建')
     }
     showDialog.value = false; fetch()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function handleDelete(data) {

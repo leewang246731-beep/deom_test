@@ -61,7 +61,7 @@
         <el-form-item label="优先级"><el-input-number v-model="ruleForm.priority" :min="0" :max="100" /></el-form-item>
         <el-form-item label="启用"><el-switch v-model="ruleForm.is_active" :active-value="1" :inactive-value="0" /></el-form-item>
       </el-form>
-      <template #footer><el-button @click="showRuleDialog=false">取消</el-button><el-button type="primary" @click="handleSaveRule">保存</el-button></template>
+      <template #footer><el-button @click="showRuleDialog=false">取消</el-button><el-button type="primary" :loading="saving" @click="handleSaveRule">保存</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -75,7 +75,7 @@ const activeTab = ref('hot')
 const hot = ref([]); const hotLoading = ref(false)
 const rules = ref([]); const rulesLoading = ref(false)
 const showRuleDialog = ref(false); const isEdit = ref(false)
-const editRuleId = ref(null); const rebuilding = ref(false)
+const editRuleId = ref(null); const saving = ref(false); const rebuilding = ref(false)
 const autoGenLoading = ref(false)
 const productTitles = ref({})
 
@@ -118,12 +118,13 @@ function openEditRule(row) {
 
 async function handleSaveRule() {
   if (!ruleForm.product_id || !ruleForm.recommended_product_id) return ElMessage.warning('请选择商品和推荐商品')
+  saving.value = true
   try {
     const data = { rule_type: ruleForm.rule_type, priority: ruleForm.priority, is_active: ruleForm.is_active }
     if (isEdit.value) { await updateRecommendationRule(editRuleId.value, data); ElMessage.success('规则已更新') }
     else { await createRecommendationRule({ ...ruleForm }); ElMessage.success('规则已添加') }
     showRuleDialog.value = false; fetchRules()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function toggleActive(row) {

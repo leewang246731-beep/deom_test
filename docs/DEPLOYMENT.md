@@ -1,4 +1,4 @@
-# 部署指南 — 多平台智能托管 SaaS v2.0.1
+# 部署指南 — 多平台智能托管 SaaS v2.1.1
 
 ## 环境要求
 
@@ -149,8 +149,10 @@ REDIS_PASSWORD=<redis-password>
 # 平台模式
 PLATFORM_MODE=real
 
-# AI — 必须配置有效 Key
+# AI — 必须配置有效 Key (DashScope OpenAI 兼容模式)
 DASHSCOPE_API_KEY=<your-dashscope-key>
+LLM_MODEL=qwen-plus                   # qwen-plus / qwen-max / qwen-turbo
+LLM_API_BASE=https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # vMall 集成
 OPENAPI_KEY=<shared-secret-with-vmall>
@@ -184,12 +186,17 @@ OPENAPI_KEY=<shared-secret-with-vmall>
 ## 常见问题
 
 ### 语义搜索返回空结果
-运行 `python seed.py --backfill --full` 生成商品向量（需要有效的 DASHSCOPE_API_KEY）。
+运行 `python seed.py --backfill --full` 生成商品向量。v2.1.1 起商品同步/创建后自动触发向量回填，无需手动操作。
 
-如果 DashScope API 不可用，语义搜索会自动降级为 SQL LIKE 模糊搜索。
+如果 DashScope API 不可用，语义搜索会自动降级为 SQL LIKE 模糊搜索。LLM 调用失败时自动降级为场景化模板话术。
 
 ### Platform Login 不可用
-重启 FastAPI 服务器。首次启动时确保 `platform_user` 模型文件存在。
+重启 FastAPI 服务器。首次启动时确保 `platform_user` 模型文件存在且服务器已重启加载。
+
+### LLM 调用返回空或超时
+1. 确认 `.env` 中 `DASHSCOPE_API_KEY` 有效
+2. 确认 `LLM_MODEL` 模型名称正确（默认 `qwen-plus`）
+3. 系统内置 2 次自动重试 + 降级兜底，不会因单次失败而返回空数据
 
 ### 跨境系统同步失败
 1. 确认 vMall 后端已启动 (:8020)

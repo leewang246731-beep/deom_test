@@ -41,7 +41,7 @@
       </el-form>
       <template #footer>
         <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">保存</el-button>
+        <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
   </div>
@@ -54,6 +54,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 const styles = ref([])
 const showDialog = ref(false)
+const saving = ref(false)
 const editId = ref(null)
 const form = reactive({ name: '', tone: '', greeting: '', features: { '长度': '适中', '表情': '适量', '促单': '温和' } })
 
@@ -66,10 +67,11 @@ function openEdit(s) { editId.value = s.id; Object.assign(form, { name: s.name, 
 
 async function handleSave() {
   if (!form.name.trim()) return ElMessage.warning('请输入风格名称')
+  saving.value = true
   try {
     if (editId.value) { await updateAIStyle(editId.value, { ...form, style_key: 'custom' }) } else { await createAIStyle({ ...form, style_key: 'custom' }) }
     ElMessage.success('已保存'); showDialog.value = false; fetch()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { saving.value = false }
 }
 
 async function setDefault(id) {

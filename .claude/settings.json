@@ -345,7 +345,15 @@
       "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['code']\\)\")",
       "Bash(curl -s http://localhost:8012/api/v1/health/db)",
       "Bash(curl -s -X POST http://localhost:8012/api/v1/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"123456\",\"merchant_id\":11}')",
-      "Bash(PYTHONIOENCODING=utf-8 python test_e2e_smoke.py)"
+      "Bash(PYTHONIOENCODING=utf-8 python test_e2e_smoke.py)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8093/)",
+      "Bash(docker compose *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8094/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8095/)",
+      "Bash(docker exec *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8090/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8091/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8092/)"
     ],
     "additionalDirectories": [
       "d:\\d\\demo_test\\backend\\app\\api"

@@ -1,7 +1,7 @@
 # 多平台智能托管 SaaS
 
 > 多租户电商客服托管平台。绑定外部店铺，AI 实时生成话术、语义搜索商品、千人千面催单、智能工单处理。
-> **六阶段全部交付** — Mock 模式下完整可演示，无需外部平台 Key。
+> **七轮迭代优化** — Mock 模式下完整可演示，AI 层升级为 OpenAI 兼容协议，全量 LLM 降级兜底。
 
 ---
 
@@ -274,9 +274,11 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
   → 回写 ai_suggest_reply + 记录采纳反馈
 ```
 
+**LLM 调用链**：`openai.OpenAI(base_url=DashScope兼容端点)` → 自动重试(2次,指数退避) → 降级兜底话术（不抛异常）
+
 **Agent 工具集**：`query_order` / `check_logistics` / `search_product_kb` / `check_inventory` / `search_ticket_history`
 
-**LangChain 封装**：`ChatDashScope(BaseChatModel)` 支持 `bind_tools`，用 `langgraph.create_react_agent` 编排。
+**LangChain 封装**：`ChatDashScope(BaseChatModel)` 支持 `bind_tools`，用 `langgraph.create_react_agent` 编排。`achat()` 异步安全包装避免事件循环阻塞。
 
 ---
 
@@ -300,7 +302,7 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 | 前端 | Vue 3.4, Vite 5, Element Plus 2.5, Pinia 2, Axios, ECharts 5, TypeScript 5.5 |
 | 后端 | Python 3.13, FastAPI 0.115, SQLAlchemy 2.0, Pydantic 2.10 |
 | 数据库 | MySQL 8.0 (PyMySQL), Redis, ChromaDB (嵌入式 PersistentClient) |
-| AI | DashScope text-embedding-v4 / qwen-max / gte-rerank-v2, LangChain + LangGraph |
+| AI | DashScope OpenAI 兼容 (qwen-plus / text-embedding-v4 / gte-rerank-v2), LangChain + LangGraph |
 | 多智能体 | Supervisor-Worker 架构 (LangGraph StateGraph), 6 专家 Agent |
 | RAG | 多格式加载器 (PDF/DOCX/XLSX/PPTX), tiktoken 分块, HyDE, 自纠错 |
 | 调度 | APScheduler (AsyncIOScheduler) |
@@ -383,6 +385,39 @@ route_experts (路由分发)
 ---
 
 ## 变更记录
+
+### v2.1.1 (2026-06-27) — AI 层升级 + 全量稳定性修复 (7 轮迭代)
+
+**AI / LLM 升级**
+- **重构**: LLM 层从 `dashscope` SDK → `openai` SDK（DashScope OpenAI 兼容端点）
+- **切换**: 默认模型 `qwen-max` → `qwen-plus`（配额更宽松，性价比更高）
+- **新增**: LLM 自动重试（2次，指数退避）+ 降级兜底话术模板（物流/退款/价格/质量/通用 5 类场景）
+- **新增**: `achat()` 异步安全包装 — `asyncio.to_thread()` 避免阻塞事件循环
+- **重构**: Embedding 层同样迁移到 OpenAI 兼容端点
+
+**后端稳定性修复**
+- **修复**: `_timeout_checker` 硬编码 `merchant_id==1` → 动态查找商户配置
+- **修复**: 分页参数无校验 → 10 个端点统一加 `ge=1, le=200`
+- **修复**: 会话详情 `status` 字段为 null → 新增 `status` 别名映射 `handled_status`
+- **新增**: 商品同步/创建后自动触发 `backfill_all` 向量回填
+- **新增**: 工单创建后后台线程触发 `backfill_tickets`
+- **新增**: 健康检查增加 LLM 连通性检测
+- **修复**: ChromaDB 废弃 `Settings` API → 环境变量 `ANONYMIZED_TELEMETRY`
+- **修复**: `TicketCreate.title` 增加 `min_length=1` 校验
+- **修复**: KB Collection 改用 `get_or_create_collection` 替代 try/except
+
+**前端交互修复 (12 页面)**
+- **修复**: 催单话术仅显示计数 → 弹窗展示完整话术内容 + 一键复制
+- **修复**: 订单详情仅用行数据 → `showDetail` 调用 `GET /orders/{id}` API
+- **修复**: 批量分配缺少用户选择 → 增加处理人下拉框
+- **新增**: 9 个页面 Loading 态绑定（SkillGroups/AIConfig/Recommendations/Service/Categories×2）
+- **新增**: 分类管理页面空状态提示 + 快速创建入口
+- **新增**: `api/index.js` 新增 `generateBindToken` / `regenerateToken`
+- **修复**: Shops.vue 改用封装 API 函数替代裸 `http.post`
+
+**部署 / 文档**
+- **更新**: `docker-compose.yml` 新增 `LLM_MODEL` / `LLM_API_BASE` 环境变量
+- **更新**: README 技术栈/架构图/AI Pipeline 同步更新
 
 ### v2.1.0 (2026-06-26) — 全栈工程化 + 多智能体 + 企业级 RAG
 

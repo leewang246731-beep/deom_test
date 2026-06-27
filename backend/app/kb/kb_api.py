@@ -97,8 +97,8 @@ def _embed_single(text: str) -> list[float]:
 def list_documents(
     source_type: str = Query(None),
     status: str = Query(None),
-    page_no: int = Query(1, alias="page"),
-    page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -270,8 +270,8 @@ async def kb_ask(body: KbAskRequest, authorization: str = Header(None), db: Sess
 
 @router.get("/conversations")
 def list_conversations(
-    page_no: int = Query(1, alias="page"),
-    page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     authorization: str = Header(None),
     db: Session = Depends(get_db),
 ):

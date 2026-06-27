@@ -28,12 +28,14 @@ services:
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
       --default-authentication-plugin=mysql_native_password
+      --innodb-use-native-aio=0
+      --innodb-flush-method=fsync
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-saas_demo_2026}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${DB_PASSWORD:-saas_demo_2026}"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 180s
     restart: unless-stopped
 
   redis:
@@ -70,6 +72,8 @@ services:
       REDIS_PASSWORD: ""
       PLATFORM_MODE: ${PLATFORM_MODE:-mock}
       DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-qwen-plus}
+      LLM_API_BASE: ${LLM_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       LOGIN_RATE_LIMIT: 10
     depends_on:
@@ -97,6 +101,8 @@ services:
       - saas-net
     ports:
       - "${ADMIN_PORT:-8093}:80"
+      - "${MERCHANT_PORT:-8094}:81"
+      - "${SERVICE_PORT:-8095}:82"
     depends_on:
       saas-backend:
         condition: service_healthy

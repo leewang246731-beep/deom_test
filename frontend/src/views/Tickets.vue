@@ -19,7 +19,10 @@
 
     <div v-if="selectedRows.length" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;padding:8px 16px;background:#ecf5ff;border-radius:6px">
       <span style="font-size:13px">已选 <strong>{{ selectedRows.length }}</strong> 个工单</span>
-      <el-button size="small" @click="handleBatchAssign">批量分配</el-button>
+      <el-select v-model="batchAssignTo" placeholder="选择处理人" size="small" style="width:160px" filterable clearable>
+        <el-option v-for="u in userOptions" :key="u.id" :label="u.label" :value="u.id" />
+      </el-select>
+      <el-button size="small" :disabled="!batchAssignTo" @click="handleBatchAssign">批量分配</el-button>
       <el-button size="small" type="danger" @click="handleBatchClose">批量关闭</el-button>
       <el-button size="small" text @click="selectedRows = []">取消选择</el-button>
     </div>
@@ -64,6 +67,7 @@ const f = reactive({ status: null, priority: null, assigned_to: null })
 const create = reactive({ title: '', description: '', priority: 'P3', source: 'manual', source_id: null })
 const userOptions = ref([])
 const selectedRows = ref([])
+const batchAssignTo = ref(null)
 const statuses = ['pending', 'in_progress', 'waiting_customer', 'resolved', 'closed']
 
 function priTag(p) { return {P0:'danger',P1:'warning',P2:'',P3:'info'}[p]||'' }
@@ -116,14 +120,18 @@ async function autoClassify() {
 function onSelectChange(rows) { selectedRows.value = rows }
 
 async function handleBatchAssign() {
+  if (!batchAssignTo.value) return ElMessage.warning('请选择处理人')
   const ids = selectedRows.value.map(r => r.id)
+  const targetUser = userOptions.value.find(u => u.id === batchAssignTo.value)
+  const label = targetUser?.label || `用户${batchAssignTo.value}`
   try {
-    await ElMessageBox.confirm(`确定将 ${ids.length} 个工单分配给自己？`, '确认')
+    await ElMessageBox.confirm(`确定将 ${ids.length} 个工单分配给 ${label}?`, '确认')
   } catch { return }
   try {
-    await batchTickets({ action: 'assign', ticket_ids: ids })
-    ElMessage.success(`已分配 ${ids.length} 个工单`)
+    await batchTickets({ action: 'assign', ticket_ids: ids, to_user_id: batchAssignTo.value })
+    ElMessage.success(`已分配 ${ids.length} 个工单给 ${label}`)
     selectedRows.value = []
+    batchAssignTo.value = null
     fetch()
   } catch {
     // error shown by interceptor

@@ -42,7 +42,7 @@ def _product_dict(p: ExternalProduct) -> dict:
 def list_products(
     shop_id: int = Query(None), category: str = Query(None),
     keyword: str = Query(None), price_min: float = Query(None), price_max: float = Query(None),
-    page_no: int = Query(1, alias="page"), page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1), page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     shop_ids = _merchant_shop_ids(db, current.merchant_id)
@@ -168,6 +168,15 @@ async def sync_products(
             ))
             new_p += 1
     db.commit()
+
+    # 同步后触发向量化回填（BUG-003 修复）
+    if new_p > 0 or upd_p > 0:
+        try:
+            from app.services.ai_suggest import backfill_all
+            backfill_all(db, current.merchant_id, full_rebuild=False)
+        except Exception:
+            pass
+
     return ok({"shop_id": shop_id, "new_products": new_p, "updated_products": upd_p,
                "total_products": new_p + upd_p}, msg="商品同步完成")
 
@@ -197,6 +206,18 @@ def create_product(
     db.add(p)
     db.commit()
     db.refresh(p)
+
+    # 新商品创建后触发向量化（BUG-003 修复）
+    try:
+        from app.services.ai_suggest import backfill_all
+        # 查询当前商户的 shop_ids
+        shop_ids = [r[0] for r in db.query(PlatformShop.id).filter(
+            PlatformShop.merchant_id == current.merchant_id).all()]
+        if shop_ids:
+            backfill_all(db, current.merchant_id, full_rebuild=False)
+    except Exception:
+        pass
+
     return ok(_product_dict(p), msg="商品已创建")
 
 

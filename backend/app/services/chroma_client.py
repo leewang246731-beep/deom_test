@@ -3,10 +3,13 @@ ChromaDB 嵌入式客户端（PersistentClient，不单独起服务）
 Collection 按商户隔离：merchant_{merchant_id}
 存储：商品向量 (type=product) + 话术向量 (type=reply)
 """
+import os
 import chromadb
-from chromadb.config import Settings as ChromaSettings
 
 from app.core.config import settings
+
+# 禁用遥测（chromadb >=0.5.x 用环境变量）
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
 _client = None
 
@@ -14,17 +17,17 @@ _client = None
 def _get_client():
     global _client
     if _client is None:
-        _client = chromadb.PersistentClient(
-            path=settings.CHROMA_PERSIST_DIR,
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
+        _client = chromadb.PersistentClient(path=settings.CHROMA_PERSIST_DIR)
     return _client
 
 
 def get_collection(merchant_id: int):
     """获取/创建商户专属 Collection：merchant_{merchant_id}"""
     name = f"merchant_{merchant_id}"
-    return _get_client().get_or_create_collection(name=name)
+    return _get_client().get_or_create_collection(
+        name=name,
+        metadata={"hnsw:space": "cosine"},
+    )
 
 
 def add_products(merchant_id: int, ids: list[str], documents: list[str],

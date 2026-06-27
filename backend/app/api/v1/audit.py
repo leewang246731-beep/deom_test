@@ -12,7 +12,7 @@ router = APIRouter(prefix="/audit-logs", tags=["审计日志"])
 
 @router.get("")
 def list_audit_logs(
-    page_no: int = Query(1, alias="page"), page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1), page_size: int = Query(20, ge=1, le=200),
     action: str = Query(None), target_type: str = Query(None),
     user_id: int = Query(None), merchant_id: int = Query(None),
     current: CurrentUser = Depends(get_platform_user),

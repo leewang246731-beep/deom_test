@@ -20,6 +20,8 @@ export const unbindShop = (id) => http.delete(`/shops/${id}`)
 export const syncShop = (id) => http.post(`/shops/${id}/sync`)
 export const getSchedulerStatus = () => http.get('/shops/scheduler-status')
 export const triggerSyncAll = () => http.post('/shops/trigger-sync')
+export const generateBindToken = (shopId) => http.post(`/shops/${shopId}/bind-token`)
+export const regenerateToken = (shopId) => http.post(`/shops/${shopId}/regenerate-token`)
 
 // ---- products ----
 export const getProducts = (params) => http.get('/products', { params })

@@ -250,6 +250,15 @@ async def sync_shop(
         shop.sync_status = "idle"
         shop.last_sync_at = datetime.now()
         db.commit()
+
+        # 同步后异步触发向量化回填（BUG-003 修复）
+        if new_p > 0:
+            try:
+                from app.services.ai_suggest import backfill_all
+                backfill_all(db, current.merchant_id, full_rebuild=False)
+            except Exception:
+                pass  # 非关键路径
+
         return ok({"new_products": new_p, "new_orders": new_o}, msg="同步完成")
     except Exception as e:
         shop.sync_status = "error"

@@ -34,12 +34,15 @@ class Settings(BaseSettings):
     # ===== 平台模式 =====
     PLATFORM_MODE: str = "mock"  # mock / real
 
-    # ===== AI / DashScope =====
+    # ===== AI / DashScope (OpenAI 兼容模式) =====
     DASHSCOPE_API_KEY: str = ""
+    LLM_API_BASE: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     EMBEDDING_MODEL: str = "text-embedding-v4"
-    LLM_MODEL: str = "qwen-max"
+    LLM_MODEL: str = "qwen-plus"  # qwen-plus 比 qwen-max 配额更宽松，性价比更高
     RAG_TOP_K: int = 20
     AI_SUGGEST_COUNT: int = 3
+    LLM_MAX_RETRIES: int = 2  # LLM 调用失败重试次数
+    LLM_TIMEOUT: int = 30     # LLM 调用超时(秒)
 
     # ===== 项目通用 =====
     API_PREFIX: str = "/api/v1"

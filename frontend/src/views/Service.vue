@@ -36,8 +36,8 @@
         <el-empty v-else description="点击左侧会话开始对话" style="flex:1" />
         <div style="display:flex;gap:8px;margin-top:8px;padding-top:8px;border-top:1px solid #ebeef5" v-if="activeConv && activeConv.handled_status !== 'closed'">
           <el-input v-model="replyText" placeholder="输入回复..." @keyup.enter="sendReply" style="flex:1" />
-          <el-button type="primary" @click="sendReply" :disabled="!replyText.trim()">发送</el-button>
-          <el-button type="warning" @click="convertToTicket">转工单</el-button>
+          <el-button type="primary" :loading="sending" @click="sendReply" :disabled="!replyText.trim()">发送</el-button>
+          <el-button type="warning" :loading="converting" @click="convertToTicket">转工单</el-button>
         </div>
         <el-tag v-else-if="activeConv" type="info" style="margin-top:8px">会话已关闭</el-tag>
       </el-card>
@@ -121,6 +121,8 @@ const pendingCount = ref(0)
 const recLoading = ref(false)
 const recommendations = ref([])
 const logistics = ref(null)
+const sending = ref(false)
+const converting = ref(false)
 let ws = null
 let pollTimer = null
 
@@ -169,13 +171,14 @@ async function sendReply() {
   const matched = suggestions.value.find(s => s.content === replyText.value)
   const sent = replyText.value
   replyText.value = ''
+  sending.value = true
   try {
     const res = await sendConversationMessage(activeConv.value.id, { content: sent })
     activeConv.value.messages_json = res.data?.messages_json || []
     ElMessage.success('已发送')
     if (matched) trackAdoption(sent, 1)
     fetchList()
-  } catch { /* error shown by interceptor */ }
+  } catch { /* error shown by interceptor */ } finally { sending.value = false }
 }
 
 async function fetchAISuggest() {
@@ -218,6 +221,7 @@ async function convertToTicket() {
   if (!activeConv.value) return
   const msgs = activeConv.value.messages_json || []
   const lastBuyer = [...msgs].reverse().find(m => m.role === 'buyer')
+  converting.value = true
   try {
     const r = await createTicket({
       title: `会话升级: ${lastBuyer?.content?.slice(0, 50) || '买家咨询'}`,
@@ -227,7 +231,7 @@ async function convertToTicket() {
     })
     ElMessage.success(`工单 ${r.data.ticket_no} 已创建`)
     router.push(`/tickets/${r.data.id}`)
-  } catch { /* error shown */ }
+  } catch { /* error shown */ } finally { converting.value = false }
 }
 
 let wsReconnectTimer = null

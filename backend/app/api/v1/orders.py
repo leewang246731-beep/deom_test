@@ -45,8 +45,8 @@ def _order_dict(o: ExternalOrder) -> dict:
 def list_orders(
     shop_id: int = Query(None),
     status: str = Query(None),
-    page_no: int = Query(1, alias="page"),
-    page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

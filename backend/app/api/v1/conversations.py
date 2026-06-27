@@ -36,7 +36,8 @@ def _conv_brief(c: Conversation) -> dict:
     preview = msgs[-1]["content"] if msgs else ""
     return {
         "id": c.id, "shop_id": c.shop_id, "buyer_nick": c.buyer_nick,
-        "product_id": c.product_id, "handled_status": c.handled_status,
+        "product_id": c.product_id,
+        "status": c.handled_status, "handled_status": c.handled_status,
         "assigned_to": c.assigned_to, "preview": preview,
         "current_mode": c.current_mode,
         "auto_reply_count": c.auto_reply_count or 0,
@@ -48,8 +49,8 @@ def _conv_brief(c: Conversation) -> dict:
 def list_conversations(
     shop_id: int = Query(None),
     handled_status: str = Query(None),
-    page_no: int = Query(1, alias="page"),
-    page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -101,7 +102,8 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
     return ok({
         "id": c.id, "shop_id": c.shop_id, "buyer_nick": c.buyer_nick,
         "product_id": c.product_id, "messages_json": c.messages_json,
-        "ai_suggest_reply": c.ai_suggest_reply, "handled_status": c.handled_status,
+        "ai_suggest_reply": c.ai_suggest_reply,
+        "status": c.handled_status, "handled_status": c.handled_status,
         "assigned_to": c.assigned_to,
     })
 

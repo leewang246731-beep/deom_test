@@ -10,4 +10,4 @@ COPY --from=build /app/dist-admin /usr/share/nginx/html/admin
 COPY --from=build /app/dist-merchant /usr/share/nginx/html/merchant
 COPY --from=build /app/dist-service /usr/share/nginx/html/service
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 80 81 82

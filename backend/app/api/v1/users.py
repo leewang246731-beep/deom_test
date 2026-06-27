@@ -24,8 +24,8 @@ def _user_dict(u: MerchantUser) -> dict:
 
 @router.get("")
 def list_users(
-    page_no: int = Query(1, alias="page"),
-    page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1),
+    page_size: int = Query(20, ge=1, le=200),
     role: str = Query(None),
     merchant_id: int = Query(None),
     current: CurrentUser = Depends(get_current_user),

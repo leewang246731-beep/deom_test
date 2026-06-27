@@ -27,7 +27,7 @@ from app.services.chroma_client import (
     query_replies,
 )
 from app.services.embedding import embed_query, embed_texts
-from app.services.llm import chat
+from app.services.llm import chat, achat
 
 # ===== Agent 关键词检测 =====
 AGENT_KEYWORDS = [
@@ -200,7 +200,7 @@ async def get_ai_suggestions(
 用 --- 分隔三条建议。"""
 
     try:
-        response = chat([{"role": "user", "content": prompt}])
+        response = await achat([{"role": "user", "content": prompt}])
         parts = [p.strip() for p in response.split("---") if p.strip()]
         # 计算置信度
         from app.services.mode_engine import calc_confidence

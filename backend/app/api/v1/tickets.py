@@ -73,7 +73,7 @@ def _ticket_brief(t: Ticket, assignee_name: str = None) -> dict:
 def list_tickets(
     status: str = Query(None), priority: str = Query(None),
     assigned_to: int = Query(None), category_id: int = Query(None),
-    page_no: int = Query(1, alias="page"), page_size: int = Query(20),
+    page_no: int = Query(1, alias="page", ge=1), page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
 ):
     q = db.query(Ticket)
@@ -127,6 +127,24 @@ def create_ticket(body: TicketCreate, current: CurrentUser = Depends(get_current
         except Exception:
             pass
     db.commit()
+
+    # 后台向量化工单（不阻塞响应）
+    try:
+        import threading
+        def _backfill():
+            from app.database.session import SessionLocal
+            db2 = SessionLocal()
+            try:
+                from app.services.ticket_ai import backfill_tickets
+                backfill_tickets(db2, current.merchant_id)
+            except Exception:
+                pass
+            finally:
+                db2.close()
+        threading.Thread(target=_backfill, daemon=True).start()
+    except Exception:
+        pass
+
     return ok({"id": t.id, "ticket_no": t.ticket_no}, msg="工单已创建")
 
 

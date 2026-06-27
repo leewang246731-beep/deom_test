@@ -32,5 +32,20 @@ langchain>=0.3.0
 langchain-community>=0.3.0
 langchain-core>=0.3.0
 
+# OpenAI SDK (兼容 DashScope)
+openai>=1.0.0
+
+# 中文分词
+jieba>=0.42
+
+# BM25 检索
+rank-bm25>=0.2
+
+# 任务调度
+apscheduler>=3.10
+
+# LangGraph Agent 工作流
+langgraph>=0.2
+
 # Redis (缓存/分布式锁)
 redis==5.2.1

@@ -37,7 +37,8 @@
     <el-pagination style="margin-top:16px;justify-content:flex-end" background layout="total, prev, pager, next" :total="total" :page-size="20" v-model:current-page="page" @current-change="fetch" />
 
     <el-dialog v-model="detailVisible" title="订单详情" width="600px">
-      <template v-if="detail">
+      <template v-if="detailLoading"><el-skeleton :rows="5" animated /></template>
+      <template v-else-if="detail">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="买家">{{ detail.buyer_nick }}</el-descriptions-item>
           <el-descriptions-item label="状态"><el-tag :type="statusTag(detail.status)" size="small">{{ detail.status }}</el-tag></el-descriptions-item>
@@ -49,12 +50,27 @@
         </el-descriptions>
       </template>
     </el-dialog>
+
+    <!-- 催单话术结果弹窗 (BUG-004) -->
+    <el-dialog v-model="remindVisible" title="催单话术" width="650px">
+      <el-alert v-if="!reminders.length" type="info" :closable="false" title="当前无待催付订单" />
+      <div v-else v-for="(r, i) in reminders" :key="i" style="padding:10px;margin-bottom:8px;background:#fafafa;border-radius:6px;border:1px solid #ebeef5">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <strong style="font-size:13px">{{ r.buyer_nick }}</strong>
+          <el-tag size="small" type="warning">{{ r.product_title }}</el-tag>
+        </div>
+        <p style="margin:0;font-size:13px;line-height:1.6;color:#303133">{{ r.script }}</p>
+        <div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">
+          <el-button size="small" plain @click="navigator.clipboard.writeText(r.script).then(()=>ElMessage.success('已复制'))">复制话术</el-button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { getOrders, getShops, refundOrder, remindPayment, exportCSV } from '../api'
+import { getOrders, getOrder, getShops, refundOrder, remindPayment, exportCSV } from '../api'
 import { ElMessage } from 'element-plus'
 
 const orders = ref([])
@@ -66,6 +82,9 @@ const page = ref(1)
 const filters = reactive({ shop_id: null, status: null })
 const detailVisible = ref(false)
 const detail = ref(null)
+const detailLoading = ref(false)
+const remindVisible = ref(false)
+const reminders = ref([])
 const statuses = ['pending', 'paid', 'shipped', 'completed', 'refunding', 'refunded']
 
 function statusTag(s) {
@@ -88,7 +107,16 @@ async function fetch() {
   } finally { loading.value = false }
 }
 
-function showDetail(row) { detail.value = row; detailVisible.value = true }
+async function showDetail(row) {
+  detailVisible.value = true
+  detailLoading.value = true
+  try {
+    const res = await getOrder(row.id)
+    detail.value = res.data || row
+  } catch {
+    detail.value = row // fallback to row data
+  } finally { detailLoading.value = false }
+}
 
 async function handleRefund(id) {
   try {
@@ -103,11 +131,12 @@ async function handleRefund(id) {
 async function handleRemind() {
   reminding.value = true
   try {
-    // Use selected shop from filter, or first available shop
     const shopId = filters.shop_id || shops.value[0]?.id
     if (!shopId) { ElMessage.warning('请先选择店铺'); reminding.value = false; return }
     const res = await remindPayment(shopId)
-    const count = res.data?.count || 0
+    reminders.value = res.data?.reminders || []
+    remindVisible.value = true
+    const count = reminders.value.length
     if (count > 0) {
       ElMessage.success(`已生成 ${count} 条催单话术`)
     } else {
