@@ -10,7 +10,7 @@ from app.models.vm_conversation import VmConversation
 from app.models.vm_merchant import VmMerchant
 from app.models.vm_message import VmMessage
 from app.models.vm_product import VmProduct
-from app.services.webhook import dispatch
+from app.services.webhook import dispatch, dispatch_sync
 
 router = APIRouter(prefix="/consumer/conversations", tags=["消费者-会话"])
 INTERNAL_KEY = "vmall-internal-demo-key"
@@ -81,7 +81,7 @@ def send_message(conv_id: int, body: dict, authorization: str = Header(None),
 
     buyer = db.query(VmBuyer).filter(VmBuyer.id == buyer_id).first()
     mi = _merchant_info(db, conv_id)
-    dispatch(SessionLocal, "NEW_MESSAGE", {
+    dispatch_sync(db, "NEW_MESSAGE", {
         "conversation_id": conv_id, "sender_role": "buyer",
         "content": body.get("content", {}),
         "msg_type": body.get("msg_type", "text"),

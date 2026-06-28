@@ -247,27 +247,28 @@ def generate_payment_reminders(merchant_id: int, shop_id: int, db: Session,
         ExternalOrder.status == "pending",
     ).offset(offset).limit(min(limit, 50)).all()
 
-    reminders = []
-    for order in pending:
-        sku = (order.sku_details_json or [{}])[0]
-        product_title = sku.get("title", "商品")
+    # 预先提取标量，避免在工作线程中触发 SQLAlchemy 懒加载（session 非线程安全）
+    items = [(o.buyer_nick, (o.sku_details_json or [{}])[0].get("title", "商品")) for o in pending]
 
+    def _gen_one(item):
+        buyer_nick, product_title = item
         prompt = f"""生成一条催付话术：
-买家：{order.buyer_nick}
+买家：{buyer_nick}
 商品：{product_title}
 要求：语气亲切、突出商品卖点、制造合理紧迫感、不超过150字。"""
-
         try:
             script = chat([{"role": "user", "content": prompt}])
         except Exception:
-            script = f"亲爱的{order.buyer_nick}，您拍下的{product_title}还未完成支付哦，库存有限抓紧下单吧~"
+            script = f"亲爱的{buyer_nick}，您拍下的{product_title}还未完成支付哦，库存有限抓紧下单吧~"
+        return {"buyer_nick": buyer_nick, "product_title": product_title, "script": script, "sent": True}
 
-        reminders.append({
-            "buyer_nick": order.buyer_nick,
-            "product_title": product_title,
-            "script": script,
-            "sent": True,  # Mock 模式恒成功
-        })
+    # 并发生成（LLM 调用为网络 I/O，线程池可显著降低总耗时）；池大小受限以尊重 API 限流
+    if items:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(8, len(items))) as ex:
+            reminders = list(ex.map(_gen_one, items))  # map 保序，输出顺序与原串行一致
+    else:
+        reminders = []
 
     return {"reminders": reminders, "count": len(reminders), "total_pending": total_pending,
             "has_more": (offset + len(reminders)) < total_pending}

@@ -8,6 +8,11 @@ import os
 import subprocess
 import socket
 
+try:  # GBK 控制台下强制 UTF-8，避免打印 ✅ 等字符时崩溃
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PASS = FAIL = 0
 
@@ -139,7 +144,7 @@ def main():
         in_use = s.connect_ex(("127.0.0.1", p)) == 0
         s.close()
         if in_use:
-            ok(f"前端 {name} (:8093) 端口已占用 (dev server 运行中?)")
+            ok(f"前端 {name} (:{p}) 端口已占用 (dev server 运行中?)")
         else:
             print(f"  ⚠️  前端 {name} (:{p}) 端口空闲")
 

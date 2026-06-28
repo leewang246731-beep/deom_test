@@ -209,6 +209,71 @@ class TestSelfCorrectionMaxRetries(unittest.TestCase):
         self.assertFalse(result["degraded"])
 
 
+# ── Multi-Format Document Upload Tests ─────────────────────
+
+
+class TestDocumentLoaders(unittest.TestCase):
+    """验证多格式文档加载器正确解析各类文件"""
+
+    @classmethod
+    def setUpClass(cls):
+        """创建各格式的测试文件"""
+        cls.tmp_dir = tempfile.mkdtemp(prefix="docload_test_")
+        cls.test_files = {}
+
+        # TXT
+        txt_path = os.path.join(cls.tmp_dir, "test.txt")
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write("这是一个测试文档。\n包含多行内容。\n用于验证文本加载器。")
+        cls.test_files[".txt"] = txt_path
+
+        # MD
+        md_path = os.path.join(cls.tmp_dir, "test.md")
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write("# 标题一\n\n这是正文内容。\n\n## 标题二\n\n更多内容。")
+        cls.test_files[".md"] = md_path
+
+    @classmethod
+    def tearDownClass(cls):
+        import shutil
+        shutil.rmtree(cls.tmp_dir, ignore_errors=True)
+
+    def test_md_loader(self):
+        from app.kb.loaders.factory import DocumentLoaderFactory
+        result = DocumentLoaderFactory.load(self.test_files[".md"])
+        self.assertIn("标题一", result["text"])
+        self.assertIn("标题二", result["text"])
+        self.assertEqual(result["metadata"]["format"], "markdown")
+
+    def test_txt_loader(self):
+        from app.kb.loaders.factory import DocumentLoaderFactory
+        result = DocumentLoaderFactory.load(self.test_files[".txt"])
+        self.assertIn("测试文档", result["text"])
+        self.assertEqual(result["metadata"]["format"], "markdown")
+
+    def test_factory_rejects_unsupported(self):
+        from app.kb.loaders.factory import DocumentLoaderFactory
+        with self.assertRaises(ValueError):
+            DocumentLoaderFactory.get_loader("test.xyz")
+
+    def test_factory_supported_formats(self):
+        from app.kb.loaders.factory import DocumentLoaderFactory
+        formats = DocumentLoaderFactory.supported_formats()
+        self.assertIn("pdf", formats)
+        self.assertIn("docx", formats)
+        self.assertIn("xlsx", formats)
+        self.assertIn("pptx", formats)
+        self.assertIn("md", formats)
+        self.assertIn("txt", formats)
+
+    def test_factory_convenience_load(self):
+        from app.kb.loaders.factory import DocumentLoaderFactory
+        result = DocumentLoaderFactory.load(self.test_files[".txt"])
+        self.assertIsInstance(result, dict)
+        self.assertIn("text", result)
+        self.assertIn("metadata", result)
+
+
 # ── 运行入口 ──────────────────────────────────────────────────
 
 if __name__ == "__main__":

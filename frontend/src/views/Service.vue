@@ -23,7 +23,14 @@
       <el-card shadow="never" style="flex:1;display:flex;flex-direction:column" body-style="flex:1;overflow:auto;padding:12px">
         <template #header>
           <span style="font-weight:bold">{{ activeConv ? activeConv.buyer_nick + ' 的会话' : '请选择会话' }}</span>
-          <span v-if="activeConv" style="float:right;font-size:12px;color:#909399">产品ID: {{ activeConv.product_id || '-' }}</span>
+          <span v-if="activeConv" style="float:right;display:flex;align-items:center;gap:8px">
+            <el-select v-model="convMode" size="small" style="width:140px" @change="changeMode" placeholder="客服模式">
+              <el-option label="人工 manual" value="manual" />
+              <el-option label="辅助 copilot" value="copilot" />
+              <el-option label="全自动 auto" value="auto" />
+            </el-select>
+            <span style="font-size:12px;color:#909399">产品ID: {{ activeConv.product_id || '-' }}</span>
+          </span>
         </template>
         <div v-if="activeConv" style="flex:1;overflow-y:auto;padding-right:8px">
           <div v-for="(msg, i) in activeConv.messages_json || []" :key="i" :style="{marginBottom:'12px',textAlign:msg.role==='buyer'?'left':'right'}">
@@ -105,7 +112,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage, exportCSV } from '../api'
+import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage, setConvMode, exportCSV } from '../api'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -123,6 +130,7 @@ const recommendations = ref([])
 const logistics = ref(null)
 const sending = ref(false)
 const converting = ref(false)
+const convMode = ref('copilot')
 let ws = null
 let pollTimer = null
 
@@ -138,10 +146,23 @@ async function selectConv(c) {
   try {
     const res = await getConversation(c.id)
     activeConv.value = res.data
+    convMode.value = res.data?.current_mode || 'copilot'
     suggestions.value = []
     recommendations.value = []
     fetchRecommendations()
   } catch { /* ok */ }
+}
+
+async function changeMode(m) {
+  if (!activeConv.value) return
+  try {
+    await setConvMode(activeConv.value.id, m)
+    activeConv.value.current_mode = m
+    ElMessage.success(m === 'auto' ? '已切换为全自动：买家消息将由 AI 自动回复' : `已切换为 ${m}`)
+  } catch {
+    ElMessage.error('切换失败')
+    convMode.value = activeConv.value.current_mode || 'copilot'
+  }
 }
 
 function copyText(text) {

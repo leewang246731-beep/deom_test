@@ -38,8 +38,12 @@ npm run dev:service    # :8095  客服工作台
 
 ```bash
 cd backend
-python test_e2e_smoke.py   # 57 用例 E2E 冒烟测试（需后端已启动）
+python test_e2e_smoke.py   # 78 用例 E2E 冒烟测试（需后端已启动；自动解析 merchant_id，对任意 seed 健壮）
+python -m pytest tests/ -q  # RAG 管道回归（10 用例）
+python verify.py            # 环境就绪自检（27 项，已内置 UTF-8，GBK 控制台亦可直接运行）
 ```
+
+> Docker 环境下可在容器内运行：`docker exec saas-backend python test_e2e_smoke.py`。
 
 ---
 
@@ -119,13 +123,15 @@ backend/
     │   └── platform_connector/ # Mock / Taobao / JD / vMall V3
     ├── database/session.py     # SQLAlchemy engine + Base + get_db
     ├── kb/                     # CRAG 知识库模块
-    │   ├── kb_api.py           # 知识库 CRUD + 混合检索 + CRAG 评估
-    │   ├── processor.py        # 文档分块 + embedding 入库
-    │   ├── retriever.py        # 混合检索（向量 + BM25）
+    │   ├── kb_api.py           # 知识库 CRUD + 文件上传 + 混合检索 + CRAG 评估
+    │   ├── processor.py        # 多格式文档解析 + 分块 + embedding 入库
+    │   ├── loaders/            # 多格式加载器 (PDF/DOCX/XLSX/PPTX/MD/TXT)
+    │   ├── retriever.py        # 混合检索（向量 + BM25 + 自动冷启动）
     │   ├── chroma_client.py    # ChromaDB 按商户隔离
     │   ├── bm25_index.py       # BM25 关键词索引
     │   ├── reranker.py         # 重排序
-    │   ├── crag.py             # CRAG 评估器
+    │   ├── crag.py             # CRAG 评估器 + Web 搜索降级
+    │   ├── self_correction.py  # 自纠错（max_retries=3 安全防护）
     │   └── ...
     ├── models/                 # 22 张表
     ├── schemas/                # Pydantic 请求模型
@@ -247,6 +253,20 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 | POST | `/ai/suggest/log` | 记录话术采纳反馈 |
 | GET/POST/PUT/DELETE | `/ai/styles` | 话术风格配置 |
 
+### 知识库
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/kb/documents` | 文档列表 `?page=&page_size=` |
+| POST | `/kb/documents` | 创建文档 `{title, content, source_type?}` |
+| POST | `/kb/documents/upload` | **上传文件** (PDF/DOCX/XLSX/PPTX/MD/TXT/CSV) |
+| GET | `/kb/documents/supported-formats` | 支持的文件格式与大小限制 |
+| DELETE | `/kb/documents/{id}` | 删除文档及分块+清理文件 |
+| POST | `/kb/ask` | 知识库问答（SSE 流式） |
+| GET | `/kb/stats` | 统计（文档数/分块数/会话数） |
+| POST | `/kb/sync` | 同步店铺产品为知识文档 |
+| GET/POST | `/kb/conversations` | 会话列表/创建 |
+| GET | `/kb/conversations/{id}/messages` | 会话消息 |
+
 ### 客服模式
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -304,7 +324,7 @@ Base: `/api/v1`，Authorization: `Bearer <JWT>`
 | 数据库 | MySQL 8.0 (PyMySQL), Redis, ChromaDB (嵌入式 PersistentClient) |
 | AI | DashScope OpenAI 兼容 (qwen-plus / text-embedding-v4 / gte-rerank-v2), LangChain + LangGraph |
 | 多智能体 | Supervisor-Worker 架构 (LangGraph StateGraph), 6 专家 Agent |
-| RAG | 多格式加载器 (PDF/DOCX/XLSX/PPTX), tiktoken 分块, HyDE, 自纠错 |
+| RAG | 多格式文档解析 (PDF/DOCX/XLSX/PPTX/MD/TXT/CSV), tiktoken 分块, HyDE, 自纠错 |
 | 调度 | APScheduler (AsyncIOScheduler) |
 | 测试 | Playwright (E2E), pytest, AST body:dict 扫描器 |
 | Mock | Faker 33 (zh_CN) |
@@ -340,21 +360,23 @@ route_experts (路由分发)
   └── ReplyAgent (结果聚合→最终回复)
 ```
 
-## 企业级 RAG 全链路 (v2.1.0)
+## 企业级 RAG 全链路 (v2.1.2)
 
 ```
-文档上传 (PDF/DOCX/XLSX/PPTX/MD/TXT)
-  → SmartChunker (tiktoken cl100k_base, 384 token)
+📄 多格式文档上传 (PDF/DOCX/XLSX/PPTX/MD/TXT/CSV — 12 种格式)
+  → DocumentLoaderFactory 自动识别格式 → 解析提取文本
+  → TokenTextSplitter (tiktoken cl100k_base, 384 token)
   → ChromaDB + BM25 混合索引
+  → 后台异步处理 (BackgroundTasks, 不阻塞上传响应)
 
 用户提问
   → Query Optimize (Rewrite + HyDE + Step-Back)
-  → Hybrid Retrieve (Dense + BM25 + RRF)
-  → CRAG Evaluate (LLM 相关性判断)
+  → Hybrid Retrieve (Dense + BM25 + RRF + BM25 冷启动自动重建)
+  → CRAG Evaluate (LLM 相关性判断 + Web 搜索降级 + HTML 清洗)
   → gte-rerank-v2 API 重排序
   → Sentence-level Context Compression
   → LLM Generate (SSE Streaming)
-  → Self-Correction (Fact-check + 幻觉检测)
+  → Self-Correction (Fact-check + 幻觉检测 + max_retries=3 安全降级)
   → Quality Monitor (Trace Logging)
 ```
 
@@ -385,6 +407,79 @@ route_experts (路由分发)
 ---
 
 ## 变更记录
+
+### v2.1.6 (2026-06-28) — DeepSeek 兜底 + 前端模式切换 + 边缘场景测试
+
+- **LLM 三级兜底链**：主模型 qwen（DashScope）失败 → **DeepSeek**（`deepseek-chat`，OpenAI 兼容）→ 场景化模板。实测：模拟主模型宕机后，`chat()` 由 DeepSeek 接管并返回真实回复（非模板）。配置 `DEEPSEEK_API_KEY`/`DEEPSEEK_MODEL`（compose 注入，`.env` 已 gitignore）。
+- **客服工作台模式切换**：会话头部新增「人工 / 辅助 / 全自动」下拉，调 `POST /service-mode/conversations/{id}/mode` 即时切换；切到 auto 后买家消息由 AI 自动回复。会话详情接口补 `current_mode`/`auto_reply_count`。
+- **边缘场景测试**（`backend/test_edge_cases.py`，16 用例全过）：余额不足支付拦截、未发货申请售后拦截、退款回补正确、**重复退款被状态机拒绝且不二次加钱**、畸形 token / 越权 / 无 API Key 拦截、负分页 / 超大分页 / 空标题校验、下单不存在商品拦截、AI 兜底非空、跨系统 shop_url 指向容器服务名。
+
+### v2.1.5 (2026-06-28) — 跨系统事件全覆盖 + 精确路由 + AI 自动回复
+
+在 v2.1.4 打通会话闭环的基础上，补全其余交互/事务链路（均端到端实测）：
+
+- **发货 / 售后 / 退款 webhook 全程打通**：ORDER_SHIPPED / AFTER_SALE_CREATED / REFUND_SUCCESS 均投递成功并同步 SaaS 订单状态（shipped → refunded）。修正这些 payload 只带数字 `order_id`、SaaS 无法按 `platform_order_id` 匹配的问题（补 `order_no`）。
+- **退款回补钱包**（与支付扣款对称）：售后确认收货后，买家钱包 `+refund_amount` + 写 `refund` 流水 + 冲减 `total_spent`。实测：付款 5500→3901，退款 3901→5500。
+- **多商户精确路由**：webhook 经 `dispatch_sync` 自动补 `shop_name`/`saas_shop_id`，SaaS 端按店名精确匹配店铺（替代"首个 active 店铺"兜底）。实测：时尚女装馆的会话精确落到对应 SaaS 店铺。
+- **AI 智能体自动回复**（auto 模式）：会话处于 auto 模式时，买家消息进来即由 AI（真实 LLM）自动生成回复并回流消费端，全程无需人工。manual/copilot 模式仍由人工处理。
+
+### v2.1.4 (2026-06-28) — 跨系统交互全链路修复（vMall ↔ SaaS）
+
+经端到端实测，修复了一批"看似实现、实则未通"的交互/事务缺陷：
+
+- **钱包付款不扣款**（vMall `consumer/orders.py`）：支付流程只改订单状态、加销量，**从不扣钱包**。补：扣余额 + 写 `vm_wallet_transactions` 流水 + 累计 `total_spent` + 余额不足拦截（400）。实测充值5000→买1599→5500→3901，流水正确。
+- **跨系统 URL 硬编码 localhost**：seed 把 `saas_url/webhook/shop_url` 写死 `127.0.0.1:8010/8020`，Docker 网络内不可达。改为环境变量 `SAAS_BASE_URL`/`VMALL_BASE_URL`（默认 docker 服务名 `saas-backend:8012`/`vmall-backend:8020`），compose 注入；宿主开发可覆盖。
+- **7/8 webhook 从不投递**：`async dispatch` 在同步端点被无 `await` 调用 → 协程被丢弃。NEW_MESSAGE / ORDER_SHIPPED / REFUND_SUCCESS / AFTER_SALE_* 全部改用同步 `dispatch_sync`。
+- **`dispatch_sync` 依赖未安装的 `requests`** → 改用标准库 `urllib`，免依赖。
+- **NEW_MESSAGE 同步到 SaaS 静默失败**：webhook 直接写入 vMall 的 `product_id`，与 SaaS `external_products` 外键冲突（异常被外层 try 吞掉，返回 200 但会话未建）。改为仅当该商品在 SaaS 存在时引用，否则置空。
+- **vMall 三前端容器 API 404 + 缺 favicon**：补 nginx `/api` 反代 + 站点图标（见下）。
+
+**端到端闭环已验证**：消费端发消息 → vMall webhook → SaaS 自动建会话 → 客服工作台 → AI 智能体建议（真实 LLM）→ 客服回复 → 回流消费端。
+
+> 已知限制：vMall `merchant.saas_shop_id` 未在绑定时回填，SaaS webhook 以"首个 active vmall 店铺"兜底（单店铺演示正确；多商户精确路由需在绑定流程回填该字段）。
+
+### v2.1.3 (2026-06-28) — 测试基线校正 + 工具健壮性 + 催付并发
+
+**测试夹具健壮性（修正失真的 28% 结论）**
+- **修复**: `test_e2e_smoke.py` 登录不再硬编码 `merchant_id` — 新增 `resolve_merchant_id()` 动态解析（无 merchant 登录读 `available_merchants` 取 admin），对重新 seed 健壮。
+- **修复**: 商品创建改用真实 `shop_id`（原硬编码跨租户 shop 触发 403 隔离）；非 ASCII 查询 URL 编码（原 urllib 崩溃致 HTTP 0）；confirm-bind 补 `X-API-Key` 头并使用 regenerate 后的新 bind_token；数量/分页断言改为数据无关。
+- **结果**: E2E 由 18/64(28%, 夹具失真) → **78/78 (100%)**；历史 BUG-002/003/006/007/008/009/012 复测全部通过；RAG 回归 10/10。原「不合格」结论系夹具失真所致，已不适用（详见 TEST_REPORT.md 第 9 节）。
+
+**工具健壮性**
+- **修复**: `verify.py` 顶部强制 UTF-8 输出 — GBK 控制台下不再因打印 ✅ 崩溃（健康系统不再误报失败）。
+- **修复**: `verify.py` 前端端口标签 `:8093` → 正确显示 `:8093/:8094/:8095`。
+
+**性能**
+- **优化**: `/ai/campaign/pending-payment` 与 `/orders/pending-payment/remind` 的逐买家催付话术由串行 LLM 改为 `ThreadPoolExecutor`(≤8) 并发（保序、同输出、同降级）。实测 8 单约 19s → **4.3s（≈4.4×）**。
+
+### v2.1.2 (2026-06-28) — RAG 管道稳定性修复 + 多格式文档上传
+
+**P0 缺陷修复 (3 项)**
+- **BUG-013**: `rag_agent.py` 工具函数延迟导入提升至顶部 + 向量服务离线降级（不再崩溃）
+- **BUG-014**: `retriever.py` BM25 索引健康检查 + 数据库冷启动自动重建（服务重启不丢索引）
+- **BUG-016**: `self_correction.py` `self_correct_generate()` max_retries=3 循环保护 + 安全降级回复（杜绝无限循环）
+
+**P1 缺陷修复 (2 项)**
+- **BUG-015**: `crag.py` 新增 `strip_html()` + `token_truncate(800)` + `web_search_fallback()` Web 降级清洗
+- **BUG-017**: `prompt.py` `build_references()` 同时输出 `content_snippet/chunk_text/content/text` 四字段向下兼容
+
+**多格式文档上传 (新功能)**
+- **新增**: `POST /kb/documents/upload` 支持 PDF/DOCX/XLSX/PPTX/MD/TXT/CSV 等 12 种格式
+- **新增**: `GET /kb/documents/supported-formats` 查询支持的文件类型与大小限制
+- **新增**: 5 个文档加载器 (PDF/DOCX/XLSX/PPTX/MD+TXT) + `DocumentLoaderFactory` 自动分发
+- **新增**: 前端双模式添加文档对话框（文件上传 + 文本输入）
+- **升级**: `processor.py` 自动调用加载器解析上传文件
+- **升级**: `splitter.py` 从 `len/1.3` 启发式升级为 `tiktoken` 精确计 token
+- **依赖**: +`pypdf`, `python-docx`, `openpyxl`, `python-pptx`, `tiktoken`
+
+**Docker / 基础设施**
+- **修复**: vmall-backend healthcheck 改用 `/docs` 端点
+- **新增**: `upload_data` volume 持久化上传文件
+- **新增**: Dockerfile 自动 DB 迁移（ALTER TABLE 追加新列）
+- **新增**: `KbDocument` 模型新增 `file_path`, `file_type` 字段
+
+**测试**
+- **新增**: `tests/test_rag_pipeline.py` — 10 项回归测试（BM25 冷启动 + 自纠错 + 多格式加载器）
 
 ### v2.1.1 (2026-06-27) — AI 层升级 + 全量稳定性修复 (7 轮迭代)
 

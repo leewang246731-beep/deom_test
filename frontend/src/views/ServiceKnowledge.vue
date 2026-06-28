@@ -4,7 +4,7 @@
     <div style="width:280px;border-right:1px solid #e4e7ed;display:flex;flex-direction:column">
       <div style="padding:12px;border-bottom:1px solid #e4e7ed;background:#fafafa">
         <span style="font-weight:600;font-size:14px">知识文档</span>
-        <el-button size="small" type="primary" style="margin-left:8px" @click="showAddDoc = true">
+        <el-button size="small" type="primary" style="margin-left:8px" @click="openAddDoc">
           <el-icon><DocumentAdd /></el-icon>
         </el-button>
         <span style="font-size:12px;color:#909399;margin-left:8px">{{ stats.document_count || 0 }} 篇</span>
@@ -18,7 +18,8 @@
         >
           <div style="font-size:13px;font-weight:500;line-height:1.4">{{ d.title }}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
-            <el-tag size="small" :type="d.source_type === 'manual' ? '' : 'info'">{{ d.source_type }}</el-tag>
+            <el-tag size="small" :type="d.source_type === 'upload' ? 'success' : d.source_type === 'manual' ? '' : 'info'">{{ d.source_type }}</el-tag>
+            <el-tag v-if="d.file_type" size="small" type="info">{{ d.file_type }}</el-tag>
             <el-tag size="small" :type="d.status === 'done' ? 'success' : d.status === 'failed' ? 'danger' : 'warning'">{{ d.status }}</el-tag>
             <span style="font-size:11px;color:#909399">{{ d.chunk_count || 0 }}切片</span>
           </div>
@@ -62,7 +63,7 @@
                     <span>{{ ref.heading || '(无标题)' }}</span>
                     <el-tag size="small" :type="ref.score > 0.7 ? 'success' : 'info'">{{ (ref.score * 100).toFixed(0) }}%</el-tag>
                   </div>
-                  <div style="font-size:12px;color:#606266;padding-left:16px">{{ ref.content_snippet?.substring(0, 100) }}</div>
+                  <div style="font-size:12px;color:#606266;padding-left:16px">{{ (ref.content_snippet || ref.chunk_text || ref.content || ref.text || '').substring(0, 100) }}</div>
                 </div>
               </div>
               <div v-if="!m.streaming && m.confidence != null" style="margin-top:4px;text-align:right">
@@ -82,23 +83,64 @@
     </div>
 
     <!-- Add Document Dialog -->
-    <el-dialog v-model="showAddDoc" title="添加知识文档" width="500px">
-      <el-form :model="docForm" label-width="80px">
-        <el-form-item label="标题"><el-input v-model="docForm.title" /></el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="docForm.source_type" style="width:100%">
-            <el-option label="商品" value="product" />
-            <el-option label="店铺信息" value="shop_info" />
-            <el-option label="手动" value="manual" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="内容">
-          <el-input v-model="docForm.content" type="textarea" :rows="8" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showAddDoc" title="添加知识文档" width="560px">
+      <el-tabs v-model="addMode" type="border-card">
+        <!-- Tab 1: 文件上传 -->
+        <el-tab-pane label="📄 文件上传" name="file">
+          <el-form label-width="80px">
+            <el-form-item label="选择文件">
+              <input
+                ref="fileInput"
+                type="file"
+                :accept="supportedFormats"
+                @change="onFileChange"
+                style="display:none"
+              />
+              <el-button @click="$refs.fileInput.click()" :disabled="addLoading">
+                <el-icon><FolderOpened /></el-icon> 点击选择文件
+              </el-button>
+              <span v-if="selectedFile" style="margin-left:8px;color:#303133">
+                <el-tag closable @close="selectedFile = null; fileForm.title = ''">{{ selectedFile.name }}</el-tag>
+                <small style="color:#909399;margin-left:4px">{{ formatSize(selectedFile.size) }}</small>
+              </span>
+              <div v-else style="color:#909399;font-size:12px;margin-top:4px">支持 {{ supportedFormats }} 等格式</div>
+            </el-form-item>
+            <el-form-item label="标题">
+              <el-input v-model="fileForm.title" placeholder="自动使用文件名" />
+            </el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="fileForm.source_type" style="width:100%">
+                <el-option label="上传文档" value="upload" />
+                <el-option label="商品" value="product" />
+                <el-option label="店铺信息" value="shop_info" />
+                <el-option label="手动" value="manual" />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- Tab 2: 文本输入 -->
+        <el-tab-pane label="📝 文本输入" name="text">
+          <el-form :model="docForm" label-width="80px">
+            <el-form-item label="标题"><el-input v-model="docForm.title" /></el-form-item>
+            <el-form-item label="类型">
+              <el-select v-model="docForm.source_type" style="width:100%">
+                <el-option label="手动" value="manual" />
+                <el-option label="商品" value="product" />
+                <el-option label="店铺信息" value="shop_info" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="内容">
+              <el-input v-model="docForm.content" type="textarea" :rows="8" />
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+      </el-tabs>
       <template #footer>
         <el-button @click="showAddDoc = false">取消</el-button>
-        <el-button type="primary" :loading="addLoading" @click="handleAddDoc">添加</el-button>
+        <el-button type="primary" :loading="addLoading" @click="handleAddDoc">
+          {{ addMode === 'file' ? '上传并解析' : '添加' }}
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -106,7 +148,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, nextTick } from 'vue'
-import { kbGetDocuments, kbCreateDocument, kbCreateConversation, kbGetStats } from '../api'
+import { kbGetDocuments, kbCreateDocument, kbUploadDocument, kbCreateConversation, kbGetStats, kbSupportedFormats } from '../api'
 import { streamKBAsk } from '../utils/sse'
 import { ElMessage } from 'element-plus'
 
@@ -123,7 +165,38 @@ const documents = ref([])
 const selectedDoc = ref(null)
 const showAddDoc = ref(false)
 const addLoading = ref(false)
+const addMode = ref('file')
+const selectedFile = ref(null)
+const supportedFormats = ref('.pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.md,.txt')
 const docForm = reactive({ title: '', content: '', source_type: 'manual' })
+const fileForm = reactive({ title: '', source_type: 'upload' })
+
+function openAddDoc() {
+  selectedFile.value = null
+  fileForm.title = ''
+  fileForm.source_type = 'upload'
+  docForm.title = ''
+  docForm.content = ''
+  docForm.source_type = 'manual'
+  addMode.value = 'file'
+  showAddDoc.value = true
+}
+
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB'
+}
+
+function onFileChange(e) {
+  const f = e.target.files?.[0]
+  if (!f) return
+  selectedFile.value = f
+  if (!fileForm.title) {
+    fileForm.title = f.name.replace(/\.[^.]+$/, '')
+  }
+}
 
 async function fetchDocs() {
   try { documents.value = (await kbGetDocuments({ page: 1, page_size: 100 }))?.items || [] } catch {}
@@ -133,6 +206,10 @@ onMounted(async () => {
   try { stats.value = await kbGetStats() || {} } catch {}
   await fetchDocs()
   await handleNewConv()
+  try {
+    const r = await kbSupportedFormats()
+    if (r?.formats) supportedFormats.value = '.' + r.formats.join(',.')
+  } catch {}
 })
 
 async function handleNewConv() {
@@ -176,16 +253,30 @@ async function handleAsk() {
 }
 
 async function handleAddDoc() {
-  if (!docForm.title.trim() || !docForm.content.trim()) return ElMessage.warning('请填写标题和内容')
   addLoading.value = true
   try {
-    await kbCreateDocument({ ...docForm })
-    ElMessage.success('添加成功，正在向量化...')
+    if (addMode.value === 'file') {
+      if (!selectedFile.value) { ElMessage.warning('请先选择文件'); addLoading.value = false; return }
+      const fd = new FormData()
+      fd.append('file', selectedFile.value)
+      fd.append('title', fileForm.title || selectedFile.value.name)
+      fd.append('source_type', fileForm.source_type)
+      await kbUploadDocument(fd)
+      ElMessage.success('上传成功，后台正在解析向量化...')
+    } else {
+      if (!docForm.title.trim() || !docForm.content.trim()) return ElMessage.warning('请填写标题和内容')
+      await kbCreateDocument({ ...docForm })
+      ElMessage.success('添加成功，正在向量化...')
+    }
     showAddDoc.value = false
     Object.assign(docForm, { title: '', content: '', source_type: 'manual' })
+    selectedFile.value = null; fileForm.title = ''; fileForm.source_type = 'upload'
     fetchDocs()
     try { stats.value = await kbGetStats() || {} } catch {}
-  } catch {} finally { addLoading.value = false }
+  } catch (e) {
+    const msg = e?.response?.data?.detail?.msg || e?.response?.data?.detail || '操作失败'
+    ElMessage.error(typeof msg === 'string' ? msg : '操作失败')
+  } finally { addLoading.value = false }
 }
 </script>
 

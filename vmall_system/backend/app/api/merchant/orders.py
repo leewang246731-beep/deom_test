@@ -8,7 +8,7 @@ from app.database.session import get_db, SessionLocal
 from app.models.vm_order import VmOrder
 from app.models.vm_order_item import VmOrderItem
 from app.models.vm_logistics import VmLogistics
-from app.services.webhook import dispatch
+from app.services.webhook import dispatch, dispatch_sync
 
 router = APIRouter(prefix="/merchant/orders", tags=["商户-订单"])
 
@@ -70,6 +70,6 @@ def ship_order(order_id: int, body: dict, authorization: str = Header(None),
                        status="picked_up",
                        events_json=[{"time": datetime.now().isoformat(), "status": "已揽收", "location": "商户"}])
     db.add(log); db.commit()
-    dispatch(SessionLocal, "ORDER_SHIPPED", {"order_id": o.id, "order_no": o.order_no, "status": "shipped",
+    dispatch_sync(db, "ORDER_SHIPPED", {"merchant_id": o.merchant_id, "_merchant_id": o.merchant_id, "order_id": o.id, "order_no": o.order_no, "status": "shipped",
                                               "logistics": {"company": "商户自配送", "tracking_no": tracking_no}})
     return ok({"id": o.id, "status": "shipped"}, msg="发货成功")

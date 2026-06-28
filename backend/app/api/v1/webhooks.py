@@ -12,11 +12,31 @@ from sqlalchemy.orm import Session
 from app.core.response import ok
 from app.database.session import SessionLocal
 from app.models.external_order import ExternalOrder
+from app.models.external_product import ExternalProduct
 from app.models.conversation import Conversation
 from app.models.platform_shop import PlatformShop
 from app.models.webhook_delivery_log import WebhookDeliveryLog
 
 router = APIRouter(prefix="/webhooks", tags=["Webhook"])
+
+
+def _resolve_shop(db: Session, data: dict):
+    """解析事件目标店铺：saas_shop_id 优先 → shop_name 精确匹配 → 回退首个 active vmall 店铺。"""
+    sid = data.get("saas_shop_id")
+    if sid:
+        s = db.query(PlatformShop).filter(
+            PlatformShop.id == sid, PlatformShop.is_active == 1).first()
+        if s:
+            return s
+    name = data.get("shop_name")
+    if name:
+        s = db.query(PlatformShop).filter(
+            PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1,
+            PlatformShop.shop_name == name).first()
+        if s:
+            return s
+    return db.query(PlatformShop).filter(
+        PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1).first()
 
 
 @router.post("/vmall")
@@ -42,6 +62,7 @@ async def vmall_webhook(request: Request):
             _upsert_order(db, data, "refunded")
         elif event == "NEW_MESSAGE":
             _handle_message(db, data)
+            await _maybe_auto_reply(db, data)
         elif event == "AFTER_SALE_CREATED":
             _upsert_order(db, data, "refunding")
         else:
@@ -73,15 +94,7 @@ def _upsert_order(db: Session, data: dict, status: str):
     order_no = data.get("order_no") or str(data.get("order_id", data.get("id", "")))
     if not order_no:
         return
-    shop_id = data.get("saas_shop_id")
-    if not shop_id:
-        shop = db.query(PlatformShop).filter(
-            PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
-        ).first()
-    else:
-        shop = db.query(PlatformShop).filter(
-            PlatformShop.id == shop_id, PlatformShop.is_active == 1
-        ).first()
+    shop = _resolve_shop(db, data)
     if not shop:
         return
 
@@ -117,15 +130,7 @@ def _handle_logistics(db: Session, data: dict):
     order_no = data.get("order_no", "")
     if not order_no:
         return
-    shop_id = data.get("saas_shop_id")
-    if not shop_id:
-        shop = db.query(PlatformShop).filter(
-            PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
-        ).first()
-    else:
-        shop = db.query(PlatformShop).filter(
-            PlatformShop.id == shop_id, PlatformShop.is_active == 1
-        ).first()
+    shop = _resolve_shop(db, data)
     if not shop:
         return
     exist = db.query(ExternalOrder).filter(
@@ -152,22 +157,20 @@ def _handle_message(db: Session, data: dict):
     ).first()
 
     if not conv:
-        shop_id = data.get("saas_shop_id")
-        if not shop_id:
-            shop = db.query(PlatformShop).filter(
-                PlatformShop.platform_type == "vmall", PlatformShop.is_active == 1
-            ).first()
-        else:
-            shop = db.query(PlatformShop).filter(
-                PlatformShop.id == shop_id, PlatformShop.is_active == 1
-            ).first()
+        shop = _resolve_shop(db, data)
         if not shop:
             return
         buyer_id = data.get("buyer_id", "")
+        # vMall 的 product_id 与 SaaS external_products 主键不同源；conversations.product_id
+        # 有外键约束，直接写入外部 id 会触发 FK 违例导致会话静默创建失败。仅当该 id 在
+        # SaaS 商品库存在时才引用，否则置空。
+        ext_pid = data.get("product_id")
+        if ext_pid and not db.query(ExternalProduct.id).filter(ExternalProduct.id == ext_pid).first():
+            ext_pid = None
         conv = Conversation(
             shop_id=shop.id,
             platform_conversation_id=platform_conv_id,
-            product_id=data.get("product_id"),
+            product_id=ext_pid,
             buyer_nick=data.get("buyer_nick") or f"买家{buyer_id}",
             messages_json=[],
             handled_status="pending",
@@ -191,3 +194,59 @@ def _handle_message(db: Session, data: dict):
     if data.get("sender_role") == "buyer":
         conv.handled_status = "pending"
     db.commit()
+
+
+async def _maybe_auto_reply(db: Session, data: dict):
+    """auto 模式下，买家消息进来即由 AI 智能体自动生成回复并回流消费端（无需人工）。"""
+    if data.get("sender_role", "buyer") != "buyer":
+        return
+    conv_id = data.get("conversation_id")
+    if not conv_id:
+        return
+    conv = db.query(Conversation).filter(
+        Conversation.platform_conversation_id == f"vmall_{conv_id}").first()
+    if not conv:
+        return
+    shop = db.query(PlatformShop).filter(PlatformShop.id == conv.shop_id).first()
+    if not shop:
+        return
+    from app.services.mode_engine import get_effective_mode
+    if get_effective_mode(db, shop.merchant_id, conv) != "auto":
+        return  # 仅 auto 模式自动回复；manual/copilot 留给人工
+    content = data.get("content", {})
+    question = content.get("text", "") if isinstance(content, dict) else str(content)
+    if not question:
+        return
+    try:
+        from app.services.ai_suggest import get_ai_suggestions
+        result = await get_ai_suggestions(shop.merchant_id, shop.id, question, None, conv.product_id, db)
+        sugg = result.get("suggestions", []) if isinstance(result, dict) else []
+        reply = sugg[0]["content"] if sugg else "您好，您的消息已收到，我们会尽快为您处理。"
+    except Exception:
+        reply = "您好，您的消息已收到，我们会尽快为您处理。"
+    msgs = list(conv.messages_json or [])
+    msgs.append({"role": "service", "content": reply, "time": datetime.now().isoformat(), "auto": True})
+    conv.messages_json = msgs
+    conv.handled_status = "replied"
+    conv.last_message_at = datetime.now()
+    try:
+        conv.auto_reply_count = (conv.auto_reply_count or 0) + 1
+    except Exception:
+        pass
+    db.commit()
+    try:
+        from app.services.mode_engine import log_auto_reply
+        log_auto_reply(db, conv.id, shop.merchant_id, "auto", question, reply, 0.8, "auto_sent")
+    except Exception:
+        pass
+    # 回流到 vMall 消费端
+    target = f"{(shop.shop_url or 'http://vmall-backend:8020')}/api/v1/consumer/conversations/{conv_id}/messages/internal"
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            target,
+            data=json.dumps({"api_key": "vmall-internal-demo-key", "content": reply, "msg_type": "text"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass

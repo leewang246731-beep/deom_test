@@ -7,7 +7,7 @@ from app.core.security import decode_token
 from app.database.session import get_db, SessionLocal
 from app.models.vm_after_sale import VmAfterSale
 from app.models.vm_order import VmOrder
-from app.services.webhook import dispatch
+from app.services.webhook import dispatch, dispatch_sync
 
 router = APIRouter(prefix="/consumer/after-sales", tags=["消费者-售后"])
 
@@ -29,8 +29,8 @@ def apply(body: dict, authorization: str = Header(None), db: Session = Depends(g
                      type=body.get("type", "refund_only"), reason=body.get("reason", ""),
                      refund_amount=body.get("refund_amount", float(order.pay_amount)))
     db.add(a); order.after_sale_status = "refunding"; db.commit()
-    dispatch(SessionLocal, "AFTER_SALE_CREATED",
-             {"id": a.id, "order_id": order.id, "type": a.type, "reason": a.reason,
+    dispatch_sync(db, "AFTER_SALE_CREATED",
+             {"id": a.id, "order_id": order.id, "order_no": order.order_no, "_merchant_id": order.merchant_id, "type": a.type, "reason": a.reason,
               "refund_amount": float(a.refund_amount), "status": a.status})
     return ok({"id": a.id}, msg="售后申请已提交")
 

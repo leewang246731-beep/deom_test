@@ -1,3 +1,4 @@
+import os as _os
 """
 种子脚本（PHASE1-PLAN 步骤3 + REQUIREMENTS-V2 缺口6/7）
 幂等：可重复运行。每次清空业务数据后用 MockPlatformConnector 重建。
@@ -348,7 +349,7 @@ async def seed():
                 merchant_id=mid,
                 platform_type="vmall",
                 shop_name=vmall["shop_name"],
-                shop_url="http://127.0.0.1:8020",
+                shop_url=_os.environ.get("VMALL_BASE_URL", "http://vmall-backend:8020"),
                 sync_status="idle",
                 is_active=1,
                 bind_status=vmall["bind_status"],

@@ -11,6 +11,7 @@ from app.database.session import get_db, SessionLocal
 from app.models.vm_order import VmOrder
 from app.models.vm_order_item import VmOrderItem
 from app.models.vm_product import VmProduct
+from app.models.vm_wallet import VmWallet, VmWalletTransaction
 from app.services.order_state import gen_order_no, pre_deduct_stock, validate_transition
 from app.services.webhook import dispatch
 
@@ -70,6 +71,10 @@ async def pay_order(order_id: int, authorization: str = Header(None),
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "订单不存在"})
     if not validate_transition(order.status, "paying"):
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "当前状态不可支付"})
+    # 支付前校验钱包余额（即时反馈余额不足）
+    wallet = db.query(VmWallet).filter(VmWallet.buyer_id == buyer_id).first()
+    if not wallet or wallet.balance < order.pay_amount:
+        raise HTTPException(status_code=400, detail={"code": 40002, "msg": "钱包余额不足"})
     order.status = "paying"; db.commit()
     asyncio.create_task(_async_pay(order_id))
     return ok({"id": order.id, "order_no": order.order_no, "status": "paying"}, msg="支付处理中...")
@@ -81,6 +86,17 @@ async def _async_pay(order_id: int):
     try:
         order = db.query(VmOrder).get(order_id)
         if not order or order.status != "paying": return
+        # 钱包结算：扣余额 + 记流水 + 累计消费（余额不足则支付失败回滚）
+        wallet = db.query(VmWallet).filter(VmWallet.buyer_id == order.buyer_id).first()
+        if not wallet or wallet.balance < order.pay_amount:
+            order.status = "pending_payment"; db.commit(); return
+        before = wallet.balance
+        wallet.balance = before - order.pay_amount
+        wallet.total_spent = (wallet.total_spent or 0) + order.pay_amount
+        db.add(VmWalletTransaction(
+            wallet_id=wallet.id, buyer_id=order.buyer_id, type="payment",
+            amount=order.pay_amount, balance_before=before, balance_after=wallet.balance,
+            order_no=order.order_no, remark="订单支付"))
         order.status = "paid"; order.pay_time = datetime.now()
         items = db.query(VmOrderItem).filter(VmOrderItem.order_id == order.id).all()
         for item in items:

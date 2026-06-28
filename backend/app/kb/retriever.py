@@ -4,7 +4,7 @@ import numpy as np
 from typing import Callable
 
 from app.kb.chroma_client import get_collection
-from app.kb.bm25_index import search as bm25_search, load_index, build_index, search
+from app.kb.bm25_index import load_index, build_index, search
 from app.database.session import SessionLocal
 from app.kb.models import KbChunk
 

@@ -76,6 +76,9 @@ services:
       LLM_API_BASE: ${LLM_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
       LOGIN_RATE_LIMIT: 10
+      VMALL_BASE_URL: ${VMALL_BASE_URL:-http://vmall-backend:8020}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
     depends_on:
       mysql:
         condition: service_healthy
@@ -83,12 +86,15 @@ services:
         condition: service_healthy
     volumes:
       - chroma_data:/app/data/chroma
+      - upload_data:/app/data/uploads
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8012/api/v1/health')"]
-      interval: 30s
+      interval: 20s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      # 全新数据卷首启需建表 + seed.py --backfill（数百次 embedding 调用），耗时较长，
+      # 故放宽至 5 分钟，避免 compose 在 seed 完成前误判 unhealthy 而中止前端依赖。
+      start_period: 300s
     restart: unless-stopped
 
   # ===== SaaS 前端 :8093 =====
@@ -126,6 +132,7 @@ services:
       DB_NAME: ${DB_NAME:-demo_test}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      SAAS_BASE_URL: ${SAAS_BASE_URL:-http://saas-backend:8012}
     depends_on:
       mysql:
         condition: service_healthy
@@ -134,10 +141,11 @@ services:
     profiles:
       - full
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/api/v1/admin/auth/login', data=b'{}', headers={'Content-Type':'application/json'})"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/docs')"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   # ===== vMall 前端 :8092 运营后台 =====
@@ -197,4 +205,6 @@ volumes:
   mysql_data:
     driver: local
   chroma_data:
+    driver: local
+  upload_data:
     driver: local

@@ -16,7 +16,7 @@ from app.models.vm_order import VmOrder
 from app.models.vm_order_item import VmOrderItem
 from app.models.vm_platform_setting import VmPlatformSetting
 from app.models.vm_product import VmProduct
-from app.services.webhook import dispatch
+from app.services.webhook import dispatch, dispatch_sync
 
 router = APIRouter(prefix="/openapi", tags=["OpenAPI"])
 
@@ -128,7 +128,7 @@ def deliver(order_id: int, body: dict, authorization: str = Header(None), db: Se
                        events_json=[{"time": datetime.now().isoformat(), "status": "已揽收"}])
     db.add(log)
     db.commit()
-    dispatch(SessionLocal, "ORDER_SHIPPED", {
+    dispatch_sync(db, "ORDER_SHIPPED", {"merchant_id": o.merchant_id, "_merchant_id": o.merchant_id, 
         "order_id": o.id, "order_no": o.order_no, "status": "shipped",
         "logistics": {"company": body.get("company", ""), "tracking_no": body.get("tracking_no", "")},
     })

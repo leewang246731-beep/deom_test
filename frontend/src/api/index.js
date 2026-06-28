@@ -159,3 +159,5 @@ export const kbCreateConversation = (data) => http.post('/kb/conversations', dat
 export const kbGetMessages = (convId) => http.get(`/kb/conversations/${convId}/messages`)
 export const kbGetStats = () => http.get('/kb/stats')
 export const kbSyncShop = (data) => http.post('/kb/sync', data)
+export const kbUploadDocument = (formData) => http.post('/kb/documents/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+export const kbSupportedFormats = () => http.get('/kb/documents/supported-formats')

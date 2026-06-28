@@ -9,7 +9,8 @@ from app.core.security import decode_token
 from app.database.session import get_db, SessionLocal
 from app.models.vm_after_sale import VmAfterSale
 from app.models.vm_order import VmOrder
-from app.services.webhook import dispatch
+from app.models.vm_wallet import VmWallet, VmWalletTransaction
+from app.services.webhook import dispatch, dispatch_sync
 
 router = APIRouter(prefix="/admin/after-sales", tags=["运营-售后"])
 
@@ -59,7 +60,7 @@ def review(sale_id: int, body: dict, authorization: str = Header(None), db: Sess
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "action 必须为 approve 或 reject"})
     db.commit()
     if a.status == "approved":
-        dispatch(SessionLocal, "AFTER_SALE_APPROVED", {"id": a.id, "order_id": a.order_id, "status": a.status})
+        dispatch_sync(db, "AFTER_SALE_APPROVED", {"id": a.id, "order_id": a.order_id, "status": a.status})
     return ok({"id": a.id, "status": a.status}, msg="已审核")
 
 
@@ -77,7 +78,18 @@ def confirm_receive(sale_id: int, authorization: str = Header(None), db: Session
     order = db.query(VmOrder).get(a.order_id)
     if order:
         order.after_sale_status = "refunded"
+    # 退款回补买家钱包（与支付扣款对称：加余额 + 流水 + 冲减累计消费）
+    if order:
+        wallet = db.query(VmWallet).filter(VmWallet.buyer_id == order.buyer_id).first()
+        if wallet:
+            before = wallet.balance
+            wallet.balance = before + a.refund_amount
+            wallet.total_spent = max((wallet.total_spent or 0) - a.refund_amount, 0)
+            db.add(VmWalletTransaction(
+                wallet_id=wallet.id, buyer_id=order.buyer_id, type="refund",
+                amount=a.refund_amount, balance_before=before, balance_after=wallet.balance,
+                order_no=order.order_no, remark="售后退款"))
     db.commit()
-    dispatch(SessionLocal, "REFUND_SUCCESS", {"id": a.id, "order_id": a.order_id,
+    dispatch_sync(db, "REFUND_SUCCESS", {"_merchant_id": (order.merchant_id if order else None), "id": a.id, "order_id": a.order_id, "order_no": (order.order_no if order else None),
                                                "refund_amount": float(a.refund_amount)})
     return ok({"id": a.id, "status": "refunded"}, msg="退款完成")

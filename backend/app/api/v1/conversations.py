@@ -104,6 +104,7 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
         "product_id": c.product_id, "messages_json": c.messages_json,
         "ai_suggest_reply": c.ai_suggest_reply,
         "status": c.handled_status, "handled_status": c.handled_status,
+        "current_mode": c.current_mode, "auto_reply_count": c.auto_reply_count,
         "assigned_to": c.assigned_to,
     })
 

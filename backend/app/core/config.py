@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     AI_SUGGEST_COUNT: int = 3
     LLM_MAX_RETRIES: int = 2  # LLM 调用失败重试次数
     LLM_TIMEOUT: int = 30     # LLM 调用超时(秒)
+    # DeepSeek 兜底（主 LLM 失败时切换；OpenAI 兼容端点）
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_API_BASE: str = "https://api.deepseek.com"
+    DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # ===== 项目通用 =====
     API_PREFIX: str = "/api/v1"
@@ -51,6 +55,13 @@ class Settings(BaseSettings):
 
     # ===== CORS (生产部署时限制为前端域名) =====
     CORS_ORIGINS: str = "*"  # 逗号分隔，如 "http://localhost:8093,https://admin.example.com"
+
+    # ===== 文件上传 =====
+    UPLOAD_DIR: str = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "uploads"
+    )
+    UPLOAD_MAX_MB: int = 50  # 单文件最大上传大小(MB)
+    ALLOWED_UPLOAD_EXTENSIONS: str = ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.md,.markdown,.txt,.text,.rst,.csv"
 
     # ===== 登录限流 =====
     LOGIN_RATE_LIMIT: int = 10  # 每分钟每IP最大尝试次数

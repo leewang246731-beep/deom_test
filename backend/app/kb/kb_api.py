@@ -1,10 +1,13 @@
-"""知识库 REST API：文档 CRUD、问答（SSE）、统计、同步"""
+"""知识库 REST API：文档 CRUD、问答（SSE）、统计、同步、文件上传"""
 import asyncio
 import json
+import os
+import re
 import time
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from openai import OpenAI
@@ -17,6 +20,7 @@ from app.schemas import KbDocumentCreate, KbAskRequest, KbConversationCreate, Kb
 
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 from app.kb.processor import process_document, batch_process
+from app.kb.loaders import DocumentLoaderFactory
 from app.kb.retriever import hybrid_retrieve
 from app.kb.optimizer import QueryOptimizer
 from app.kb.crag import CragEvaluator
@@ -111,6 +115,7 @@ def list_documents(
     items = q.order_by(KbDocument.id.desc()).offset((page_no - 1) * page_size).limit(page_size).all()
     return page([{"id": d.id, "title": d.title, "source_type": d.source_type,
                    "status": d.status, "chunk_count": d.chunk_count,
+                   "file_type": d.file_type,
                    "created_at": d.created_at.isoformat() if d.created_at else None}
                  for d in items], total, page_no, page_size)
 
@@ -139,9 +144,139 @@ def delete_document(doc_id: int, authorization: str = Header(None), db: Session 
     doc = db.query(KbDocument).filter(KbDocument.id == doc_id, KbDocument.merchant_id == mid).first()
     if not doc:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "文档不存在"})
+    # 清理文件
+    if doc.file_path and os.path.exists(doc.file_path):
+        try:
+            os.remove(doc.file_path)
+        except Exception:
+            pass
     db.query(KbChunk).filter(KbChunk.document_id == doc_id).delete()
     db.delete(doc); db.commit()
     return ok(msg="已删除")
+
+
+# ========== 文件上传 ==========
+
+def _ensure_upload_dir():
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+
+
+def _allowed_file(filename: str) -> bool:
+    """检查文件扩展名是否在允许列表中"""
+    allowed = {ext.strip().lower() for ext in settings.ALLOWED_UPLOAD_EXTENSIONS.split(",")}
+    ext = os.path.splitext(filename)[1].lower()
+    return ext in allowed
+
+
+def _sanitize_filename(filename: str) -> str:
+    """安全化文件名：保留中文/字母/数字/下划线/连字符/点，截断到 120 字符"""
+    name, ext = os.path.splitext(filename)
+    safe = re.sub(r'[^\w一-鿿\-.]', '_', name)
+    safe = safe.strip('_')[:120] or "upload"
+    # 追加 8 位 UUID 防止覆盖
+    return f"{safe}_{uuid.uuid4().hex[:8]}{ext}"
+
+
+def _save_upload(file: UploadFile) -> dict:
+    """保存上传文件到磁盘，返回文件元信息"""
+    if not _allowed_file(file.filename or ""):
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40001, "msg": f"不支持的文件类型。支持: {settings.ALLOWED_UPLOAD_EXTENSIONS}"},
+        )
+
+    contents = file.file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail={"code": 40002, "msg": "文件为空"})
+
+    max_bytes = settings.UPLOAD_MAX_MB * 1024 * 1024
+    if len(contents) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail={"code": 41301, "msg": f"文件过大，最大 {settings.UPLOAD_MAX_MB}MB"},
+        )
+
+    _ensure_upload_dir()
+    safe_name = _sanitize_filename(file.filename or "unknown")
+    dest = os.path.join(settings.UPLOAD_DIR, safe_name)
+    with open(dest, "wb") as f:
+        f.write(contents)
+
+    ext = os.path.splitext(file.filename or "")[1].lower().lstrip(".")
+    return {
+        "file_path": os.path.abspath(dest),
+        "file_type": ext,
+        "original_name": file.filename,
+        "size_bytes": len(contents),
+    }
+
+
+@router.get("/documents/supported-formats")
+def supported_formats():
+    """返回支持的文档格式列表"""
+    formats = DocumentLoaderFactory.supported_formats()
+    return ok({
+        "formats": formats,
+        "extensions": settings.ALLOWED_UPLOAD_EXTENSIONS,
+        "max_mb": settings.UPLOAD_MAX_MB,
+    })
+
+
+@router.post("/documents/upload")
+def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    source_type: str = Form("manual"),
+    authorization: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    """上传文档文件：PDF/DOCX/XLSX/PPTX/MD/TXT 等，自动解析→分块→向量化
+
+    支持异步后台处理：文件保存后立即返回，分块和向量化在后台执行。
+    """
+    user = _get_user(authorization)
+    mid = user.get("merchant_id", 1)
+
+    # 保存文件
+    info = _save_upload(file)
+
+    # 尝试用加载器提取文本预览
+    try:
+        loaded = DocumentLoaderFactory.load(info["file_path"])
+        preview = loaded.get("text", "")[:500]
+    except Exception:
+        preview = ""
+
+    # 自动填充标题
+    doc_title = title.strip() or (info["original_name"] or "未命名文档")
+
+    # 创建文档记录
+    doc = KbDocument(
+        merchant_id=mid,
+        title=doc_title,
+        content=preview,
+        source_type=source_type or "upload",
+        status="pending",
+        file_path=info["file_path"],
+        file_type=info["file_type"],
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    # 后台异步处理（不阻塞上传响应）
+    background_tasks.add_task(process_document, db, doc.id, mid, _embed)
+
+    return ok({
+        "id": doc.id,
+        "title": doc.title,
+        "file_type": info["file_type"],
+        "file_path": info["file_path"],
+        "size_bytes": info["size_bytes"],
+        "status": doc.status,
+        "preview": preview[:200],
+    })
 
 
 # ========== 问答（SSE 流式） ==========

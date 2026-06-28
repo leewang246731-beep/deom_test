@@ -69,6 +69,9 @@ PRODUCTS = [
 ]
 
 
+import os as _os
+
+
 def seed():
     Base.metadata.create_all(bind=engine, checkfirst=True)
     db = SessionLocal()
@@ -116,7 +119,7 @@ def seed():
                            contact_phone=f"1380000000{1+i}", contact_email=f"{uname}@shop.com")
             if saas_bound:
                 m.saas_bound = True
-                m.saas_url = "http://127.0.0.1:8010"
+                m.saas_url = _os.environ.get("SAAS_BASE_URL", "http://saas-backend:8012")
                 # saas_shop_id 由 SaaS seed 的输出决定（商户1→shop_id_1, 商户2→shop_id_2）
                 # 这里暂设 0，后续可通过绑定时修正，或在 SaaS seed 后更新
                 m.saas_bind_time = datetime.now()
@@ -128,7 +131,7 @@ def seed():
                                 display_name="平台管理员", role="admin"))
         db.add(VmPlatformSetting(shop_name="vMall官方旗舰店",
                                   access_token_secret="vmall-secret-key-change-in-production",
-                                  saas_webhook_url="http://127.0.0.1:8010/api/v1/webhooks/vmall"))
+                                  saas_webhook_url=_os.environ.get("SAAS_BASE_URL", "http://saas-backend:8012") + "/api/v1/webhooks/vmall"))
 
         # ---- 买家 ----
         buyer = VmBuyer(username="buyer_test", password_hash=hash_password("123456"),

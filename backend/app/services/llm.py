@@ -26,6 +26,22 @@ _client = OpenAI(
     timeout=settings.LLM_TIMEOUT,
 )
 
+# DeepSeek 兜底客户端（主 LLM 失败时启用；OpenAI 兼容）
+_deepseek_client = OpenAI(
+    api_key=settings.DEEPSEEK_API_KEY,
+    base_url=settings.DEEPSEEK_API_BASE,
+    timeout=settings.LLM_TIMEOUT,
+) if settings.DEEPSEEK_API_KEY else None
+
+
+def _deepseek_chat(messages: list[dict]) -> str:
+    """DeepSeek 兜底文本补全（OpenAI 兼容）。未配置 key 时抛异常由上层继续降级。"""
+    if not _deepseek_client:
+        raise RuntimeError("DeepSeek 未配置")
+    resp = _deepseek_client.chat.completions.create(
+        model=settings.DEEPSEEK_MODEL, messages=messages, stream=False)
+    return resp.choices[0].message.content or ""
+
 ROLE_MAP = {
     "system": "system",
     "assistant": "assistant",
@@ -166,10 +182,17 @@ def chat(messages: list[dict]) -> str:
             lc_msgs.append(HumanMessage(content=content))
     try:
         return _llm.invoke(lc_msgs).content
-    except Exception as e:
-        # 降级：返回友好兜底话术
+    except Exception as primary_err:
+        # 兜底链：主 LLM(qwen) 失败 → DeepSeek → 场景化模板
+        try:
+            openai_msgs = _lc_to_openai(lc_msgs)
+            text = _deepseek_chat(openai_msgs)
+            if text:
+                return text
+        except Exception:
+            pass
         user_msg = next((m.content for m in lc_msgs if isinstance(m, HumanMessage)), "")
-        return _fallback_reply(user_msg, str(e))
+        return _fallback_reply(user_msg, str(primary_err))
 
 
 async def achat(messages: list[dict]) -> str:

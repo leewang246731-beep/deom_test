@@ -1,4 +1,4 @@
-# 部署指南 — 多平台智能托管 SaaS v2.1.1
+# 部署指南 — 多平台智能托管 SaaS v2.1.3
 
 ## 环境要求
 
@@ -117,15 +117,41 @@ npm install && npm run dev     # :8091
 
 ## 生产部署
 
-### Docker 部署
+### Docker 部署（推荐，一键起栈）
+
+整个栈（MySQL/Redis/后端/前端，可选 vMall）由 `docker-compose.yml` 编排。后端容器启动时自动建表 + 迁移 + `seed.py --backfill --full`（幂等），无需手动初始化。
 
 ```bash
-# 构建镜像
-docker build -t saas-backend:latest -f backend/Dockerfile .
+# 在仓库根目录
+# 仅 SaaS 栈
+docker compose up -d --build
 
-# 启动
-docker-compose up -d
+# SaaS + vMall 完整栈
+docker compose --profile full up -d --build
+
+# 全新重建（清空数据卷，重新 seed）：
+docker compose --profile full down -v
+docker compose --profile full up -d --build
 ```
+
+> **API Key 注入**：compose 通过 `${DASHSCOPE_API_KEY}` 从宿主环境或仓库根 `.env`（已 gitignore）读取，会覆盖镜像内 `backend/.env`。确保起栈前该变量为有效 key，否则 AI 功能走降级兜底。MySQL/Redis 仅在内部网络，不暴露宿主端口。
+
+> **跨系统 URL（容器互通必读）**：vMall→SaaS 的 webhook 与 SaaS→vMall 的回流，使用容器服务名而非 localhost。由 `SAAS_BASE_URL`（默认 `http://saas-backend:8012`）与 `VMALL_BASE_URL`（默认 `http://vmall-backend:8020`）控制，compose 已注入；seed 据此写入。**宿主裸跑（非 Docker）时**需把这两个变量改为 `http://127.0.0.1:8012` / `http://127.0.0.1:8020`，否则跨系统消息/事件无法互达。
+
+#### 容器内验证
+
+```bash
+docker compose ps                                    # 全部 healthy
+docker exec saas-backend python verify.py            # 环境自检 27 项
+docker exec saas-backend pip install -q pytest       # 生产镜像不含 pytest，按需安装
+docker exec saas-backend python -m pytest tests/ -q  # RAG 回归 10 项
+docker exec saas-backend python test_e2e_smoke.py    # E2E 冒烟 78 项（容器内直连）
+docker exec saas-backend python test_edge_cases.py   # 跨系统边缘场景 16 项（钱包/售后/越权/校验/AI兜底）
+curl http://localhost:8012/api/v1/health             # llm/db/redis/chromadb 均 connected
+```
+
+> **AI 兜底链**：主模型 qwen 失败时自动切 DeepSeek，再不行走场景化模板，端点不会返回空。配置 `DEEPSEEK_API_KEY`（compose 注入）即生效。
+> **客服模式**：客服工作台（:8095）会话头部可切「人工 / 辅助 / 全自动」；切到全自动后，买家消息由 AI（含 DeepSeek 兜底）自动回复并回流消费端。
 
 ### 环境变量（生产）
 
@@ -171,17 +197,29 @@ OPENAPI_KEY=<shared-secret-with-vmall>
 ## 端口布局
 
 ```
-:8012  SaaS 后端 API
+:8012  SaaS 后端 API (含 KB 文件上传、文档解析)
 :8020  vMall 后端 API (可选)
-:8093  平台管理前端
+:8093  平台管理前端 (含企业知识库多格式文档上传)
 :8094  商户工作台前端
-:8095  客服工作台前端
+:8095  客服工作台前端 (含知识库文件上传)
 :8090  vMall 买家 H5 (可选)
 :8091  vMall 商户端 (可选)
 :8092  vMall 运营后台 (可选)
-:3306  MySQL
-:6379  Redis
+:3306  MySQL (内部)
+:6379  Redis (内部)
 ```
+
+### 知识库文件上传
+
+支持 12 种文档格式上传，自动解析→分块→向量化：
+```
+PDF (.pdf)    — pypdf
+Word (.docx)  — python-docx
+Excel (.xlsx) — openpyxl
+PPT (.pptx)   — python-pptx
+MD/TXT/CSV    — 内置解析
+```
+文件最大 50MB，上传后在后台异步处理。上传目录：`backend/data/uploads/`，Docker 中为 `upload_data` volume。
 
 ## 常见问题
 

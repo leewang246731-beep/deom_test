@@ -51,25 +51,42 @@ def _log(db: Session, event_type: str, payload: dict, url: str, status: str, cod
     db.commit()
 
 
+def _enrich(db: Session, payload: dict) -> dict:
+    """为 payload 补充 shop_name / saas_shop_id，供 SaaS 端精确路由到对应店铺。"""
+    mid = payload.get("_merchant_id") or payload.get("merchant_id")
+    if mid and (not payload.get("shop_name") or not payload.get("saas_shop_id")):
+        m = db.query(VmMerchant).filter(VmMerchant.id == mid).first()
+        if m:
+            payload = dict(payload)
+            payload.setdefault("shop_name", m.shop_name)
+            if not payload.get("saas_shop_id"):
+                payload["saas_shop_id"] = m.saas_shop_id
+    return payload
+
+
 def dispatch_sync(db: Session, event_type: str, payload: dict):
-    """同步推送 + 记日志（用于需要即时确认的场景）。"""
-    url = _get_webhook_url(db)
+    """同步推送 + 记日志（用于 sync 端点，避免 async dispatch 未 await 被丢弃）。"""
+    payload = _enrich(db, payload)
+    url = _get_webhook_url(db, payload.get("_merchant_id") or payload.get("merchant_id"))
     if not url:
         _log(db, event_type, payload, url, "skipped", None, "无 Webhook 地址")
         return False
     try:
-        import requests
-        r = requests.post(
-            url,
-            json={"event": event_type, "data": payload, "timestamp": __import__("datetime").datetime.now().isoformat()},
-            headers={"X-Webhook-Source": "vmall", "X-Event-Type": event_type},
-            timeout=10,
-        )
-        if r.status_code < 400:
-            _log(db, event_type, payload, url, "success", r.status_code, "")
+        import json as _json
+        import urllib.request
+        import urllib.error
+        from datetime import datetime
+        body = _json.dumps({"event": event_type, "data": payload,
+                            "timestamp": datetime.now().isoformat()}).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "Content-Type": "application/json",
+            "X-Webhook-Source": "vmall", "X-Event-Type": event_type})
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            _log(db, event_type, payload, url, "success", resp.status, "")
             return True
-        else:
-            _log(db, event_type, payload, url, "failed", r.status_code, r.text[:500])
+        except urllib.error.HTTPError as he:
+            _log(db, event_type, payload, url, "failed", he.code, he.read().decode("utf-8", "ignore")[:500])
             return False
     except Exception as e:
         _log(db, event_type, payload, url, "failed", None, str(e)[:500])
