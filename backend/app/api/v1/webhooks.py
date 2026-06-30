@@ -279,7 +279,9 @@ async def _maybe_auto_reply(db: Session, data: dict):
         return
     try:
         from app.services.ai_suggest import get_ai_suggestions
-        result = await get_ai_suggestions(shop.merchant_id, shop.id, question, None, conv.product_id, db)
+        # 传递最近 10 条历史消息，实现多轮对话记忆
+        chat_history = (conv.messages_json or [])[-10:]
+        result = await get_ai_suggestions(shop.merchant_id, shop.id, question, chat_history, conv.product_id, db)
         sugg = result.get("suggestions", []) if isinstance(result, dict) else []
         reply = sugg[0]["content"] if sugg else "您好，您的消息已收到，我们会尽快为您处理。"
     except Exception:

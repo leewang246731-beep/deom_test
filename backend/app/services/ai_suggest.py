@@ -211,8 +211,20 @@ async def get_ai_suggestions(
 
     role_block = f"\n【角色定位】：{role_prompt}\n" if role_prompt else ""
 
+    # 多轮对话历史（最近 10 条）
+    history_block = ""
+    if conversation_history:
+        recent = conversation_history[-10:]
+        history_lines = []
+        for h in recent:
+            role_label = "买家" if h.get("role") == "buyer" else "客服"
+            content = h.get("content", "")[:150]
+            history_lines.append(f"{role_label}: {content}")
+        if history_lines:
+            history_block = "【对话历史】（请基于上下文连续对话，不要重复已说过的信息）\n" + "\n".join(history_lines) + "\n\n"
+
     prompt = f"""你是电商客服助手。基于以下信息，为买家问题生成3条回复建议。
-{product_context}{role_block}{logistics_block}
+{product_context}{history_block}{role_block}{logistics_block}
 商品信息：
 {product_info}
 
@@ -222,8 +234,10 @@ async def get_ai_suggestions(
 买家问题：{buyer_question}
 
 要求：语气自然亲切、直接回答买家问题、每条不超过200字。
-若提供了【当前咨询商品】，所有指代词默认指向该商品。仅当买家明确提到其他商品时才切换。
-若买家问物流相关，必须引用物流状态具体信息。
+- 若提供了【对话历史】，请基于上下文连续对话，理解买家在追问或纠正什么。
+- 若提供了【当前咨询商品】，所有指代词默认指向该商品。仅当买家明确提到其他商品时才切换。
+- 若买家问物流相关，必须引用物流状态具体信息。
+- 客服的回复放在每条的最后，不要重复打招呼。
 用 --- 分隔三条建议。"""
 
     try:

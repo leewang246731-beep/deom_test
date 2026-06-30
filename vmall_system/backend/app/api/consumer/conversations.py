@@ -96,6 +96,31 @@ def send_message(conv_id: int, body: dict, authorization: str = Header(None),
     return ok({"id": msg.id})
 
 
+@router.get("/{conv_id}")
+def get_conversation(conv_id: int, authorization: str = Header(None), db: Session = Depends(get_db)):
+    """获取会话详情（含商品信息，用于聊天窗口展示商品卡片）。"""
+    buyer_id = _get_buyer(authorization)
+    c = db.query(VmConversation).filter(
+        VmConversation.id == conv_id, VmConversation.buyer_id == buyer_id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    product_info = None
+    if c.product_id:
+        p = db.query(VmProduct).filter(VmProduct.id == c.product_id).first()
+        if p:
+            product_info = {
+                "id": p.id, "title": p.title, "price": float(p.price_min),
+                "image": p.main_image, "stock": p.total_stock,
+            }
+    return ok({
+        "id": c.id, "merchant_id": c.merchant_id,
+        "product_id": c.product_id, "product": product_info,
+        "order_id": c.order_id, "status": c.status,
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+    })
+
+
 @router.get("/{conv_id}/messages")
 def get_messages(conv_id: int, authorization: str = Header(None), db: Session = Depends(get_db)):
     buyer_id = _get_buyer(authorization)

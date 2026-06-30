@@ -17,6 +17,7 @@ from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import SessionLocal, get_db
 from app.models.conversation import Conversation
+from app.models.external_product import ExternalProduct
 from app.models.platform_shop import PlatformShop
 from app.schemas import ConversationMessageSend
 
@@ -130,9 +131,15 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
     ).first()
     if not c:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    product_info = None
+    if c.product_id:
+        ep = db.query(ExternalProduct).filter(ExternalProduct.id == c.product_id).first()
+        if ep:
+            product_info = {"id": ep.id, "title": ep.title, "price": float(ep.price), "stock": ep.stock}
     return ok({
         "id": c.id, "shop_id": c.shop_id, "buyer_nick": c.buyer_nick,
-        "product_id": c.product_id, "messages_json": c.messages_json,
+        "product_id": c.product_id, "product": product_info,
+        "messages_json": c.messages_json,
         "ai_suggest_reply": c.ai_suggest_reply,
         "status": c.handled_status, "handled_status": c.handled_status,
         "current_mode": c.current_mode, "auto_reply_count": c.auto_reply_count,

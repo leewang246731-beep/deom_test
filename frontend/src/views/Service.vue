@@ -29,7 +29,10 @@
               <el-option label="辅助 copilot" value="copilot" />
               <el-option label="全自动 auto" value="auto" />
             </el-select>
-            <span style="font-size:12px;color:#909399">产品ID: {{ activeConv.product_id || '-' }}</span>
+            <span v-if="activeConv.product" style="font-size:12px;color:#409eff;cursor:pointer" @click="$router.push('/products/'+activeConv.product.id)">
+              📦 {{ activeConv.product.title }} (¥{{ activeConv.product.price }})
+            </span>
+            <span v-else style="font-size:12px;color:#909399">产品ID: {{ activeConv.product_id || '未绑定' }}</span>
           </span>
         </template>
         <div v-if="activeConv" style="flex:1;overflow-y:auto;padding-right:8px">
