@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_effective_merchant_id, get_current_user, require_roles
 from app.core.platform_connector import get_platform_connector
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -43,9 +43,9 @@ def list_products(
     shop_id: int = Query(None), category: str = Query(None),
     keyword: str = Query(None), price_min: float = Query(None), price_max: float = Query(None),
     page_no: int = Query(1, alias="page", ge=1), page_size: int = Query(20, ge=1, le=200),
-    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     if not shop_ids:
         return page([], 0, page_no, page_size)
     q = db.query(ExternalProduct).filter(ExternalProduct.shop_id.in_(shop_ids))
@@ -68,10 +68,10 @@ def list_products(
 def search_products(
     q: str = Query(..., description="自然语言查询"),
     shop_id: int = Query(None),
-    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
     """语义搜索：向量检索 + 可选店铺过滤。向量为空时自动降级为 SQL LIKE 搜索。"""
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     if shop_id and shop_id in shop_ids:
         shop_ids = [shop_id]
     shop_map = {s.id: s.shop_name for s in db.query(PlatformShop).filter(
@@ -80,7 +80,7 @@ def search_products(
     search_mode = "semantic"
     try:
         from app.services.ai_suggest import semantic_search_products
-        results = semantic_search_products(current.merchant_id, q, shop_ids, top_k=10)
+        results = semantic_search_products(mid, q, shop_ids, top_k=10)
     except Exception:
         results = []
     # 向量搜索无结果时，降级为 SQL LIKE 模糊搜索
@@ -100,9 +100,9 @@ def search_products(
 @router.get("/export")
 def export_products(
     shop_id: int = Query(None), keyword: str = Query(None),
-    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     q = db.query(ExternalProduct).filter(ExternalProduct.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalProduct).filter(False)
     if shop_id: q = q.filter(ExternalProduct.shop_id == shop_id)
     if keyword: q = q.filter(ExternalProduct.title.like(f"%{keyword}%"))
@@ -120,8 +120,8 @@ def export_products(
 
 @router.get("/{product_id}")
 def product_detail(product_id: int, current: CurrentUser = Depends(get_current_user),
-                   db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+                   mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     p = db.query(ExternalProduct).filter(
         ExternalProduct.id == product_id,
         ExternalProduct.shop_id.in_(shop_ids) if shop_ids else False,
@@ -135,11 +135,11 @@ def product_detail(product_id: int, current: CurrentUser = Depends(get_current_u
 async def sync_products(
     shop_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
+    mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
     """单独同步该店铺商品（缺口1：支持 UPDATE 已存在的商品）。"""
     shop = db.query(PlatformShop).filter(
-        PlatformShop.id == shop_id, PlatformShop.merchant_id == current.merchant_id).first()
+        PlatformShop.id == shop_id, PlatformShop.merchant_id == mid).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
     connector = get_platform_connector(shop_id, db)
@@ -173,7 +173,7 @@ async def sync_products(
     if new_p > 0 or upd_p > 0:
         try:
             from app.services.ai_suggest import backfill_all
-            backfill_all(db, current.merchant_id, full_rebuild=False)
+            backfill_all(db, mid, full_rebuild=False)
         except Exception:
             pass
 
@@ -185,9 +185,9 @@ async def sync_products(
 def create_product(
     body: ProductCreate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
+    mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     if body.shop_id not in shop_ids:
         raise HTTPException(status_code=403, detail={"code": 40301, "msg": "无权操作该店铺"})
     p = ExternalProduct(
@@ -212,9 +212,9 @@ def create_product(
         from app.services.ai_suggest import backfill_all
         # 查询当前商户的 shop_ids
         shop_ids = [r[0] for r in db.query(PlatformShop.id).filter(
-            PlatformShop.merchant_id == current.merchant_id).all()]
+            PlatformShop.merchant_id == mid).all()]
         if shop_ids:
-            backfill_all(db, current.merchant_id, full_rebuild=False)
+            backfill_all(db, mid, full_rebuild=False)
     except Exception:
         pass
 
@@ -226,9 +226,9 @@ def update_product(
     product_id: int,
     body: ProductUpdate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
+    mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     p = db.query(ExternalProduct).filter(
         ExternalProduct.id == product_id,
         ExternalProduct.shop_id.in_(shop_ids),
@@ -248,9 +248,9 @@ def update_product(
 def delete_product(
     product_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
-    db: Session = Depends(get_db),
+    mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     p = db.query(ExternalProduct).filter(
         ExternalProduct.id == product_id,
         ExternalProduct.shop_id.in_(shop_ids),
