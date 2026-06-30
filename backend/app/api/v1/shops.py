@@ -82,6 +82,25 @@ def bind_shop(
     db.add(shop)
     db.commit()
     db.refresh(shop)
+
+    # vmall 店铺：自动获取 access_token
+    if shop.platform_type == "vmall" and shop.shop_url:
+        try:
+            import httpx
+            auth_url = f"{shop.shop_url.rstrip('/')}/openapi/auth"
+            resp = httpx.post(auth_url, json={
+                "merchant_id": mid,
+                "shop_id": shop.id,
+            }, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                shop.access_token = data.get("access_token")
+                shop.token_expire_at = datetime.now() + timedelta(seconds=data.get("expires_in", 86400 * 7))
+                db.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"vmall auth failed for shop {shop.id}: {e}")
+
     return ok({"id": shop.id, "shop_name": shop.shop_name})
 
 
@@ -185,15 +204,26 @@ def regenerate_bind_token(
     mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    """重新生成绑定 token。"""
+    """重新生成绑定 token（vmall 店铺自动 refresh access_token）。"""
     shop = _get_owned_shop(db, shop_id, mid)
-    if shop.bind_status == "active":
-        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "已绑定无法重新生成，请先解绑"})
-    token = secrets.token_urlsafe(24)
-    shop.bind_token = token
-    shop.bind_status = "pending"
-    db.commit()
-    return ok({"bind_token": token, "bind_status": "pending"}, msg="绑定 token 已重新生成")
+
+    # vmall 店铺：重新获取 access_token
+    if shop.platform_type == "vmall" and shop.shop_url:
+        try:
+            import httpx
+            auth_url = f"{shop.shop_url.rstrip('/')}/openapi/auth"
+            resp = httpx.post(auth_url, json={
+                "merchant_id": mid,
+                "shop_id": shop.id,
+            }, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                shop.access_token = data.get("access_token")
+                shop.token_expire_at = datetime.now() + timedelta(seconds=data.get("expires_in", 86400 * 7))
+                db.commit()
+                return ok({"access_token": "refreshed", "expires_in": data.get("expires_in")}, msg="已刷新")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail={"code": 50202, "msg": f"vmall auth 失败: {e}"})
 
 
 @router.post("/{shop_id}/sync")
