@@ -73,6 +73,15 @@ class V3Connector(PlatformConnector):
         except Exception:
             return None
 
+    async def send_notification(self, buyer_id: int, order_id: int, content: str) -> dict:
+        """调用 vMall /openapi/notifications 推送买家通知。"""
+        return await self._post("/openapi/notifications", {
+            "buyer_id": buyer_id,
+            "order_id": order_id,
+            "content": content,
+            "msg_type": "reminder",
+        })
+
     # ---- 字段映射 ----
     def _map_product(self, p: dict) -> dict:
         return {

@@ -34,3 +34,8 @@ class PlatformConnector(ABC):
     async def get_conversations(self, shop_id: int) -> List[dict]:
         """获取活跃客服会话。返回 conversations 字段形状的 dict 列表。"""
         ...
+
+    @abstractmethod
+    async def send_notification(self, buyer_id: int, order_id: int, content: str) -> dict:
+        """向买家推送通知（催单等）。返回 {id, conversation_id}。"""
+        ...

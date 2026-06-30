@@ -209,3 +209,6 @@ class MockPlatformConnector(PlatformConnector):
     async def send_message(self, shop_id: int, buyer_openid: str, content: str) -> bool:
         """模拟发送，不发起真实请求，恒成功。"""
         return True
+
+    async def send_notification(self, buyer_id: int, order_id: int, content: str) -> dict:
+        return {"id": 0, "conversation_id": 0}
