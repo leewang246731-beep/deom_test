@@ -103,6 +103,16 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
 
         intents = matched if matched else ["knowledge"]
         trace_entry["intents"] = intents
+
+        # D.3: 查询执行记忆 — 相似问题复用成功策略
+        try:
+            from app.ai.memory import recall_best_strategy
+            best = recall_best_strategy(self.merchant_id, question)
+            if best:
+                trace_entry["strategy_hint"] = best
+        except Exception:
+            pass
+
         state["intents"] = intents
         state["intent"] = intents[0]  # 主意图
         state["trace"].append(trace_entry)
@@ -268,16 +278,49 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
                 "intermediate_steps": [],
             }
 
+        reply = final_state["final_reply"]
+        confidence = final_state["final_confidence"]
+        intents = final_state["intents"]
+        trace = final_state["trace"]
+
+        # D.1: 会话持久化（非关键路径）
+        try:
+            from app.ai.memory import save_conversation_turn, record_execution
+            tools_used = [
+                t.get("node", "") for t in trace
+                if "expert_" in str(t.get("node", ""))
+            ]
+            save_conversation_turn(
+                merchant_id=self.merchant_id,
+                user_id=0,  # 从 chat_history 中提取 user_id 的 TODO
+                question=question,
+                reply=reply,
+                intent=intents[0] if intents else "",
+                confidence=confidence,
+                trace=trace,
+            )
+            # D.3: 记录执行记忆
+            record_execution(
+                merchant_id=self.merchant_id,
+                question=question,
+                intent=intents[0] if intents else "unknown",
+                intents=intents,
+                tools_used=[{"tool": t} for t in tools_used],
+                success=confidence > 0.3,
+                confidence=confidence,
+            )
+        except Exception:
+            pass
+
         return {
-            "reply": final_state["final_reply"],
-            "confidence": final_state["final_confidence"],
-            "intents": final_state["intents"],
+            "reply": reply,
+            "confidence": confidence,
+            "intents": intents,
             "expert_results": final_state.get("expert_results", {}),
-            "trace": final_state["trace"],
-            # 向后兼容 agent.py 接口
+            "trace": trace,
             "intermediate_steps": [
                 {"tool": t.get("node", "?"), "tool_input": {}, "observation": t.get("reply_preview", "")}
-                for t in final_state["trace"]
+                for t in trace
                 if "reply_preview" in t or "error" in t
             ],
         }

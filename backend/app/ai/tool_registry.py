@@ -340,6 +340,16 @@ def build_recommend_products_tool(merchant_id: int):
     return recommend_products
 
 
+def build_get_buyer_profile_tool(merchant_id: int):
+    """查询买家画像。tag: buyer, query"""
+    @langchain_tool
+    def get_buyer_profile(buyer_id: int = 0, buyer_openid: str = "") -> str:
+        """查询买家画像和购买历史。buyer_id为买家ID。返回累计订单、消费金额、偏好商品。"""
+        from app.ai.memory import query_buyer_profile
+        return query_buyer_profile(merchant_id, buyer_id, buyer_openid)
+    return get_buyer_profile
+
+
 # ===== 初始化全局注册表 =====
 
 def init_registry(merchant_id: int) -> ToolRegistry:
@@ -358,5 +368,6 @@ def init_registry(merchant_id: int) -> ToolRegistry:
     registry.register(build_send_message_tool(merchant_id), tags=["message", "action"])
     registry.register(build_create_ticket_tool(merchant_id), tags=["ticket", "action"])
     registry.register(build_recommend_products_tool(merchant_id), tags=["product", "recommendation"])
+    registry.register(build_get_buyer_profile_tool(merchant_id), tags=["buyer", "query"])
 
     return registry
