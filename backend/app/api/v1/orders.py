@@ -126,10 +126,10 @@ def remind_pending(
             shop = db.query(PlatformShop).filter(PlatformShop.id == body.shop_id).first()
             if shop and shop.platform_type == "vmall" and shop.access_token:
                 connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
-                ok, _, err = run_connector(
+                succ, _, err = run_connector(
                     connector.send_notification(int(buyer_openid) if buyer_openid else 0, order_id, content)
                 )
-                if not ok:
+                if not succ:
                     rem["send_error"] = err
             else:
                 rem["send_error"] = "not vmall or no token"
