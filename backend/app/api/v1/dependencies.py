@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
 from app.database.session import get_db
+from app.models.merchant import Merchant
 from app.models.merchant_user import MerchantUser
 from app.models.platform_user import PlatformUser
 
@@ -126,3 +127,41 @@ def require_platform_roles(*roles: str):
             raise HTTPException(status_code=403, detail={"code": 40301, "msg": "权限不足"})
         return current
     return checker
+
+
+def get_effective_merchant_id(
+    current: CurrentUser = Depends(get_current_user),
+    x_merchant_id: str = Header(None, alias="X-Merchant-Id"),
+    db: Session = Depends(get_db),
+) -> int:
+    """统一解析当前操作的 merchant_id。
+
+    商户 token → 永远用 token 内 merchant_id，忽略请求头（租户隔离）。
+    平台 token → 取 X-Merchant-Id 头；缺失返回 40002。
+    """
+    if current.token_type == "access":
+        if current.merchant_id is None:
+            raise HTTPException(status_code=401, detail={"code": 40102, "msg": "不是商户员工"})
+        return current.merchant_id
+
+    # platform token — 要求 X-Merchant-Id 头
+    if not x_merchant_id or not x_merchant_id.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40002, "msg": "请先选择要管理的商户"},
+        )
+    try:
+        mid = int(x_merchant_id.strip())
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40002, "msg": "商户 ID 格式无效"},
+        )
+
+    merchant = db.query(Merchant).filter(Merchant.id == mid, Merchant.status == 1).first()
+    if not merchant:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": 40002, "msg": "商户不存在或已停用"},
+        )
+    return mid
