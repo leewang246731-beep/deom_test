@@ -8,6 +8,13 @@ let _refreshing = false  // 防止并发刷新
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('platform_token') || localStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+
+  // 平台端：注入选中商户 ID
+  const mid = localStorage.getItem('active_merchant_id')
+  if (mid && localStorage.getItem('platform_token')) {
+    config.headers['X-Merchant-Id'] = mid
+  }
+
   return config
 })
 

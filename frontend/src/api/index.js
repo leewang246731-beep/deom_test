@@ -161,3 +161,6 @@ export const kbGetStats = () => http.get('/kb/stats')
 export const kbSyncShop = (data) => http.post('/kb/sync', data)
 export const kbUploadDocument = (formData) => http.post('/kb/documents/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 export const kbSupportedFormats = () => http.get('/kb/documents/supported-formats')
+
+// ---- merchants (platform only) ----
+export const getMerchants = () => http.get('/merchants')

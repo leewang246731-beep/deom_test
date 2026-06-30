@@ -56,6 +56,24 @@
           <span class="header-title">{{ pageTitle }}</span>
         </div>
 
+        <div class="header-center">
+          <el-select
+            v-model="activeMerchant"
+            placeholder="选择商户"
+            size="small"
+            style="width: 200px"
+            @change="onMerchantChange"
+            clearable
+          >
+            <el-option
+              v-for="m in merchantList"
+              :key="m.id"
+              :label="m.name"
+              :value="m.id"
+            />
+          </el-select>
+        </div>
+
         <div class="header-right">
           <!-- Global Search -->
           <div class="header-search">
@@ -138,6 +156,31 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+import { getMerchants } from '../api'
+
+// ── 商户选择器 ──
+const activeMerchant = ref(parseInt(localStorage.getItem('active_merchant_id')) || null)
+const merchantList = ref([])
+
+onMounted(async () => {
+  try {
+    const res = await getMerchants()
+    merchantList.value = res.data || []
+    if (!activeMerchant.value && merchantList.value.length) {
+      activeMerchant.value = merchantList.value[0].id
+      localStorage.setItem('active_merchant_id', String(activeMerchant.value))
+    }
+  } catch { /* 非平台 token 则接口返回 403，静默 */ }
+})
+
+function onMerchantChange(val) {
+  if (val) {
+    localStorage.setItem('active_merchant_id', String(val))
+  } else {
+    localStorage.removeItem('active_merchant_id')
+  }
+}
+
 const auth = useAuthStore()
 
 // ── Collapse ──
@@ -351,6 +394,13 @@ function handleLogout() {
   font-size: 14px;
   font-weight: 500;
   color: var(--text-regular);
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  justify-content: center;
 }
 
 .header-right {
