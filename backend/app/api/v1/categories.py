@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.category import Category
@@ -33,27 +33,31 @@ def _build_tree(cats: list[Category], parent_id: int = None) -> list[dict]:
 
 
 @router.get("")
-def list_categories(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_categories(current: CurrentUser = Depends(get_current_user),
+                    mid: int = Depends(get_effective_merchant_id),
+                    db: Session = Depends(get_db)):
     cats = db.query(Category).filter(
-        Category.merchant_id == current.merchant_id
+        Category.merchant_id == mid
     ).order_by(Category.level, Category.sort_order).all()
     return ok(_build_tree(cats))
 
 
 @router.post("")
-def create_category(body: CategoryCreate, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def create_category(body: CategoryCreate,
+                    current: CurrentUser = Depends(require_roles("admin", "manager")),
+                    mid: int = Depends(get_effective_merchant_id),
                     db: Session = Depends(get_db)):
     level = 1
     if body.parent_id:
         parent = db.query(Category).filter(Category.id == body.parent_id,
-                                            Category.merchant_id == current.merchant_id).first()
+                                            Category.merchant_id == mid).first()
         if not parent:
             raise HTTPException(status_code=404, detail={"code": 40401, "msg": "父分类不存在"})
         level = parent.level + 1
     max_order = db.query(Category.sort_order).filter(
-        Category.merchant_id == current.merchant_id).order_by(Category.sort_order.desc()).first()
+        Category.merchant_id == mid).order_by(Category.sort_order.desc()).first()
     sort_order = (max_order[0] + 1) if max_order else 0
-    cat = Category(merchant_id=current.merchant_id, name=body.name,
+    cat = Category(merchant_id=mid, name=body.name,
                    parent_id=body.parent_id, level=level, sort_order=sort_order)
     db.add(cat)
     db.commit()
@@ -63,9 +67,10 @@ def create_category(body: CategoryCreate, current: CurrentUser = Depends(require
 @router.put("/{cat_id}")
 def update_category(cat_id: int, body: CategoryUpdate,
                     current: CurrentUser = Depends(require_roles("admin", "manager")),
+                    mid: int = Depends(get_effective_merchant_id),
                     db: Session = Depends(get_db)):
     cat = db.query(Category).filter(Category.id == cat_id,
-                                     Category.merchant_id == current.merchant_id).first()
+                                     Category.merchant_id == mid).first()
     if not cat:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
     if body.name is not None:
@@ -77,10 +82,12 @@ def update_category(cat_id: int, body: CategoryUpdate,
 
 
 @router.delete("/{cat_id}")
-def delete_category(cat_id: int, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def delete_category(cat_id: int,
+                    current: CurrentUser = Depends(require_roles("admin", "manager")),
+                    mid: int = Depends(get_effective_merchant_id),
                     db: Session = Depends(get_db)):
     cat = db.query(Category).filter(Category.id == cat_id,
-                                     Category.merchant_id == current.merchant_id).first()
+                                     Category.merchant_id == mid).first()
     if not cat:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "分类不存在"})
     children = db.query(Category).filter(Category.parent_id == cat_id).count()
