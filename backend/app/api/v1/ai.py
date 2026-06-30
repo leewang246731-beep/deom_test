@@ -107,10 +107,10 @@ def create_style(body: AIStyleCreate, mid: int = Depends(get_effective_merchant_
     s = AIStyleConfig(
         merchant_id=mid,
         name=body.name,
-        style_key="custom",
-        tone="",
-        greeting="",
-        features={},
+        style_key=body.style_key or "custom",
+        tone=body.tone or "",
+        greeting=body.greeting or "",
+        features=body.features or {},
     )
     db.add(s)
     db.commit()
@@ -124,7 +124,7 @@ def update_style(style_id: int, body: AIStyleUpdate, mid: int = Depends(get_effe
                                         AIStyleConfig.merchant_id == mid).first()
     if not s:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "风格不存在"})
-    for field in ("name", "tone", "greeting", "features"):
+    for field in ("name", "tone", "greeting", "features", "style_key"):
         val = getattr(body, field, None)
         if val is not None:
             setattr(s, field, val)

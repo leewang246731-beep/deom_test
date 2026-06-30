@@ -225,13 +225,18 @@ class SLAPolicyUpdate(BaseModel):
 # ===== AI 风格 =====
 class AIStyleCreate(BaseModel):
     name: str
-    prompt_template: str
-    is_default: Optional[bool] = False
+    tone: Optional[str] = None
+    greeting: Optional[str] = None
+    features: Optional[dict] = None
+    style_key: Optional[str] = "custom"
 
 
 class AIStyleUpdate(BaseModel):
     name: Optional[str] = None
-    prompt_template: Optional[str] = None
+    tone: Optional[str] = None
+    greeting: Optional[str] = None
+    features: Optional[dict] = None
+    style_key: Optional[str] = None
     is_default: Optional[bool] = None
 
 
