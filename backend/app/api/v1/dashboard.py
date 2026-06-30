@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_user
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.ai_suggestion_log import AISuggestionLog
@@ -39,9 +39,9 @@ def metrics(
     start: str = Query(None),
     end: str = Query(None),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    mid = current.merchant_id  # None for platform
     shop_ids = _shop_ids(db, mid)
     today = datetime.now().strftime("%Y-%m-%d")
 
@@ -107,9 +107,10 @@ def metrics(
 def order_trend(
     range: str = Query("week"),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    shop_ids = _shop_ids(db, current.merchant_id)
+    shop_ids = _shop_ids(db, mid)
     if not shop_ids:
         return ok({"range": range, "points": [], "summary": {"total_orders": 0, "total_amount": 0, "avg_daily": 0}})
 
@@ -136,9 +137,9 @@ def order_trend(
 @router.get("/service-stats")
 def service_stats(
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    mid = current.merchant_id
     shop_ids = _shop_ids(db, mid)
     if not shop_ids:
         return ok({"total_conversations": 0, "pending": 0, "replied": 0, "closed": 0, "ai_adoption_rate": 0, "avg_response_minutes": 0, "per_service": []})
@@ -175,8 +176,7 @@ def service_stats(
 
 
 @router.get("/ticket-stats")
-def ticket_stats(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    mid = current.merchant_id
+def ticket_stats(current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     def _tq(status=None):
         q = db.query(Ticket)
         if mid is not None:
@@ -198,8 +198,7 @@ def ticket_stats(current: CurrentUser = Depends(get_current_user), db: Session =
 
 
 @router.get("/live-monitor")
-def live_monitor(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    mid = current.merchant_id
+def live_monitor(current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     shop_ids = _shop_ids(db, mid)
 
     users_q = db.query(MerchantUser).filter(MerchantUser.status == 1)
@@ -242,14 +241,14 @@ def live_monitor(current: CurrentUser = Depends(get_current_user), db: Session =
 
 @router.get("/ticket-trend")
 def ticket_trend(range: str = Query("week"), current: CurrentUser = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
+                 mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     days = {"day": 1, "week": 7, "month": 30}.get(range, 7)
     since = datetime.now() - timedelta(days=days)
     fmt = "%Y-%m-%d %H:00" if range == "day" else "%Y-%m-%d"
     group = func.date_format(Ticket.created_at, fmt)
     q = db.query(group, func.count()).filter(Ticket.created_at >= since)
-    if current.merchant_id is not None:
-        q = q.filter(Ticket.merchant_id == current.merchant_id)
+    if mid is not None:
+        q = q.filter(Ticket.merchant_id == mid)
     rows = q.group_by(group).order_by(group).all()
     points = [{"date": r[0], "count": r[1]} for r in rows]
     return ok({"range": range, "points": points})
