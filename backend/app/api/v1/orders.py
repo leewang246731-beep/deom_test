@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id, require_roles
 from app.core.redis_client import get_redis, mkey
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -48,10 +48,11 @@ def list_orders(
     page_no: int = Query(1, alias="page", ge=1),
     page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    if not shop_ids and current.merchant_id is not None:
+    shop_ids = _merchant_shop_ids(db, mid)
+    if not shop_ids and mid is not None:
         return page([], 0, page_no, page_size)
     q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids))
     if shop_id:
@@ -64,8 +65,11 @@ def list_orders(
 
 
 @router.get("/pending-payment")
-def pending_payment(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+def pending_payment(
+    current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
+    db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     items = db.query(ExternalOrder).filter(
         ExternalOrder.shop_id.in_(shop_ids) if shop_ids else True,
         ExternalOrder.status == "pending",
@@ -76,14 +80,15 @@ def pending_payment(current: CurrentUser = Depends(get_current_user), db: Sessio
 @router.post("/pending-payment/remind")
 def remind_pending(
     body: AICampaignRequest,
-    current: CurrentUser = Depends(get_current_merchant),
+    current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """批量催单：支持分页（缺口4），limit 不超过 .env CAMPAIGN_MAX_PER_REQUEST。"""
     try:
         from app.services.ai_suggest import generate_payment_reminders
         limit = min(body.limit or 20, 50)
-        result = generate_payment_reminders(current.merchant_id, body.shop_id, db, limit=limit, offset=body.offset or 0)
+        result = generate_payment_reminders(mid, body.shop_id, db, limit=limit, offset=body.offset or 0)
         return ok(result)
     except Exception as e:
         return ok({"reminders": [], "count": 0, "total_pending": 0, "has_more": False, "note": f"AI 催单待步骤6 接入: {e}"})
@@ -92,9 +97,11 @@ def remind_pending(
 @router.get("/export")
 def export_orders(
     shop_id: int = Query(None), status: str = Query(None),
-    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
+    db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(shop_ids)) if shop_ids else db.query(ExternalOrder)
     if shop_id: q = q.filter(ExternalOrder.shop_id == shop_id)
     if status: q = q.filter(ExternalOrder.status == status)
@@ -113,8 +120,12 @@ def export_orders(
 
 
 @router.get("/{order_id}")
-def order_detail(order_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+def order_detail(
+    order_id: int,
+    current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
+    db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     o = db.query(ExternalOrder).filter(
         ExternalOrder.id == order_id,
         ExternalOrder.shop_id.in_(shop_ids) if shop_ids else True,
@@ -128,10 +139,11 @@ def order_detail(order_id: int, current: CurrentUser = Depends(get_current_user)
 def refund_order(
     order_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """售后：Redis 分布式锁防并发，Mock 模式直接标记 refunded。"""
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     o = db.query(ExternalOrder).filter(
         ExternalOrder.id == order_id,
         ExternalOrder.shop_id.in_(shop_ids) if shop_ids else False,
@@ -140,7 +152,7 @@ def refund_order(
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "订单不存在"})
 
     r = get_redis()
-    lock_key = mkey(current.merchant_id, "lock", f"refund_{order_id}")
+    lock_key = mkey(mid, "lock", f"refund_{order_id}")
     if not r.set(lock_key, "1", nx=True, ex=30):
         raise HTTPException(status_code=409, detail={"code": 40901, "msg": "售后处理中，请勿重复提交"})
     try:
