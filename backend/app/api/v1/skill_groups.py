@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.merchant_user import MerchantUser
@@ -14,8 +14,10 @@ router = APIRouter(prefix="/skill-groups", tags=["技能组"])
 
 
 @router.get("")
-def list_groups(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    groups = db.query(SkillGroup).filter(SkillGroup.merchant_id == current.merchant_id).all()
+def list_groups(current: CurrentUser = Depends(get_current_user),
+                mid: int = Depends(get_effective_merchant_id),
+                db: Session = Depends(get_db)):
+    groups = db.query(SkillGroup).filter(SkillGroup.merchant_id == mid).all()
     result = []
     for g in groups:
         members = db.query(SkillMember).filter(SkillMember.group_id == g.id).all()
@@ -35,8 +37,9 @@ def list_groups(current: CurrentUser = Depends(get_current_user), db: Session = 
 
 @router.post("")
 def create_group(body: SkillGroupCreate, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                 mid: int = Depends(get_effective_merchant_id),
                  db: Session = Depends(get_db)):
-    g = SkillGroup(merchant_id=current.merchant_id, name=body.name,
+    g = SkillGroup(merchant_id=mid, name=body.name,
                     description=body.description or "")
     db.add(g)
     db.commit()
@@ -45,9 +48,10 @@ def create_group(body: SkillGroupCreate, current: CurrentUser = Depends(require_
 
 @router.put("/{group_id}")
 def update_group(group_id: int, body: SkillGroupUpdate, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                 mid: int = Depends(get_effective_merchant_id),
                  db: Session = Depends(get_db)):
     g = db.query(SkillGroup).filter(SkillGroup.id == group_id,
-                                     SkillGroup.merchant_id == current.merchant_id).first()
+                                     SkillGroup.merchant_id == mid).first()
     if not g:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
     for field in ("name", "description", "is_active"):
@@ -60,9 +64,10 @@ def update_group(group_id: int, body: SkillGroupUpdate, current: CurrentUser = D
 
 @router.delete("/{group_id}")
 def delete_group(group_id: int, current: CurrentUser = Depends(require_roles("admin", "manager")),
+                 mid: int = Depends(get_effective_merchant_id),
                  db: Session = Depends(get_db)):
     g = db.query(SkillGroup).filter(SkillGroup.id == group_id,
-                                     SkillGroup.merchant_id == current.merchant_id).first()
+                                     SkillGroup.merchant_id == mid).first()
     if not g:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
     db.query(SkillMember).filter(SkillMember.group_id == group_id).delete(synchronize_session=False)
@@ -73,14 +78,15 @@ def delete_group(group_id: int, current: CurrentUser = Depends(require_roles("ad
 
 @router.post("/{group_id}/members")
 def add_member(group_id: int, body: SkillMemberAdd, current: CurrentUser = Depends(require_roles("admin", "manager")),
+               mid: int = Depends(get_effective_merchant_id),
                db: Session = Depends(get_db)):
     g = db.query(SkillGroup).filter(SkillGroup.id == group_id,
-                                     SkillGroup.merchant_id == current.merchant_id).first()
+                                     SkillGroup.merchant_id == mid).first()
     if not g:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
     uid = body.user_id
     u = db.query(MerchantUser).filter(MerchantUser.id == uid,
-                                       MerchantUser.merchant_id == current.merchant_id).first()
+                                       MerchantUser.merchant_id == mid).first()
     if not u:
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "用户不存在"})
     tags = body.skill_tags or []
