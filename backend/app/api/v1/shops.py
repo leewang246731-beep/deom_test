@@ -222,8 +222,17 @@ def regenerate_bind_token(
                 shop.token_expire_at = datetime.now() + timedelta(seconds=data.get("expires_in", 86400 * 7))
                 db.commit()
                 return ok({"access_token": "refreshed", "expires_in": data.get("expires_in")}, msg="已刷新")
+            else:
+                raise HTTPException(status_code=502, detail={"code": 50202, "msg": f"vmall auth 返回 {resp.status_code}"})
         except Exception as e:
             raise HTTPException(status_code=502, detail={"code": 50202, "msg": f"vmall auth 失败: {e}"})
+
+    # 非 vmall 店铺：重新生成绑定 token（原有逻辑）
+    token = secrets.token_urlsafe(24)
+    shop.bind_token = token
+    shop.bind_status = "pending"
+    db.commit()
+    return ok({"bind_token": token, "bind_status": "pending"}, msg="已重新生成")
 
 
 @router.post("/{shop_id}/sync")
