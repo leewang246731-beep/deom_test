@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, require_roles
+from app.api.v1.dependencies import get_effective_merchant_id
 from app.core.config import settings
 from app.core.response import ok
 from app.database.session import get_db
@@ -44,11 +44,11 @@ def _fetch_vmall_token(vmall_url: str, merchant_id: int, shop_id: int) -> str:
 
 
 @router.post("/generate-bind-token")
-def generate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def generate_bind_token(body: GenerateBindTokenRequest, mid: int = Depends(get_effective_merchant_id),
                         db: Session = Depends(get_db)):
     """SaaS 管理端：为指定 vmall 店铺生成绑定 token。"""
     shop = db.query(PlatformShop).filter(
-        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == current.merchant_id
+        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == mid
     ).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
@@ -67,11 +67,11 @@ def generate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = D
 
 
 @router.post("/regenerate-bind-token")
-def regenerate_bind_token(body: GenerateBindTokenRequest, current: CurrentUser = Depends(require_roles("admin", "manager")),
+def regenerate_bind_token(body: GenerateBindTokenRequest, mid: int = Depends(get_effective_merchant_id),
                           db: Session = Depends(get_db)):
     """重新生成绑定 token。"""
     shop = db.query(PlatformShop).filter(
-        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == current.merchant_id
+        PlatformShop.id == body.shop_id, PlatformShop.merchant_id == mid
     ).first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
