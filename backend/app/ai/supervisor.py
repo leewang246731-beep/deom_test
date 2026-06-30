@@ -1,10 +1,12 @@
 """
-SupervisorAgent — 主管-专家协作架构
+SupervisorAgent — 主管-专家协作架构 (v3: LLM Structured Output + DAG + Clarify)
 
 LangGraph StateGraph 实现:
-  1. Intent Classification (意图识别) → 决定路由到哪些专家
-  2. Task Dispatch (任务分发) → 并行/串行调用专家
-  3. Result Aggregation (结果聚合) → ReplyAgent 合成最终回复
+  1. Intent Classification (意图识别) → LLM Structured Output 替代关键词
+  2. Task Planning (任务规划) → 生成带依赖的 DAG 执行计划
+  3. Task Dispatch (任务分发) → 按 DAG 串行/并行调用专家
+  4. Result Aggregation (结果聚合) → ReplyAgent 合成最终回复
+  5. Clarify Check (澄清检查) → 低置信度时生成追问
 
 State 定义:
   question: str          - 原始买家问题
@@ -28,15 +30,68 @@ class SupervisorState(TypedDict):
     chat_history: list
     intent: str
     intents: list  # 多意图
+    plan: list  # LLM 生成的执行计划 (E.1)
     routed_experts: list
     expert_results: dict
     final_reply: str
     final_confidence: float
+    needs_clarification: bool  # 是否需要追问买家 (E.3)
+    clarification_question: str  # 追问内容
     replan_count: int  # 重规划次数
     trace: Annotated[list, operator.add]  # append-only
 
 
-# ===== 意图分类规则 =====
+# ===== LLM Structured Output 规划 (E.1) =====
+
+PLANNING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "needs_clarification": {
+            "type": "boolean",
+            "description": "问题是否过于模糊，需要反问买家澄清"
+        },
+        "clarification_question": {
+            "type": "string",
+            "description": "如果需要澄清，生成的追问"
+        },
+        "tasks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "expert": {"type": "string", "enum": ["order", "logistics", "product", "ticket", "rag"]},
+                    "priority": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "depends_on": {"type": "array", "items": {"type": "string"},
+                                   "description": "依赖的前置专家名（空数组=可并行）"},
+                    "reason": {"type": "string", "description": "为什么需要这个专家"},
+                },
+                "required": ["expert", "priority", "depends_on"],
+            },
+            "description": "需要调用的专家列表（按依赖排序）",
+        },
+    },
+    "required": ["needs_clarification", "tasks"],
+}
+
+PLANNING_PROMPT = """你是电商客服任务规划器。分析买家问题，输出执行计划。
+
+可用专家:
+- order: 订单查询、退款处理
+- logistics: 物流轨迹查询
+- product: 商品搜索、库存、推荐
+- ticket: 工单查询和创建
+- rag: 通用知识库检索
+
+规则:
+1. 如果问题模糊（无法确定意图），设置 needs_clarification=true 并给出追问
+2. 如果有多个步骤有依赖关系（如先查订单才能查物流），在 depends_on 中标明
+3. 独立任务可以并行（depends_on=[]）
+4. priority 1=最高, 5=最低
+
+输出 JSON（严格按 schema）。"""
+
+
+# ===== 意图分类规则 (fallback) =====
 INTENT_RULES = {
     "order": {
         "keywords": ["订单", "买", "拍了", "支付", "付款", "退款", "退货", "售后", "多少钱", "金额", "order", "refund"],
@@ -77,34 +132,68 @@ class SupervisorAgent:
     # ===== 节点函数 =====
 
     def classify_intent(self, state: SupervisorState) -> SupervisorState:
-        """节点 1: 意图分类 — 规则 + LLM 双重判断。"""
+        """节点 1: 意图分类 — LLM Structured Output (E.1) + 关键词 fallback。"""
         question = state["question"]
         trace_entry = {"ts": datetime.now().isoformat(), "node": "classify_intent", "question": question[:100]}
         matched = []
 
-        for intent_name, rule in INTENT_RULES.items():
-            if any(kw in question.lower() for kw in rule["keywords"]):
-                matched.append(intent_name)
+        # E.1: 尝试 LLM Structured Output 规划
+        try:
+            import json as _json
+            from langchain_core.messages import SystemMessage, HumanMessage
+            schema_str = _json.dumps(PLANNING_SCHEMA, ensure_ascii=False)
+            llm_prompt = f"{PLANNING_PROMPT}\n\n买家问题: {question[:300]}\n\nJSON Schema:\n{schema_str}"
+            response = self.llm.invoke([SystemMessage(content=llm_prompt)])
+            text = response.content if hasattr(response, 'content') else str(response)
+            # 提取 JSON（可能被 markdown 包裹）
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            plan = _json.loads(text.strip())
 
+            if plan.get("needs_clarification"):
+                state["needs_clarification"] = True
+                state["clarification_question"] = plan.get("clarification_question", "能再详细描述一下您的问题吗？")
+                trace_entry["clarification"] = state["clarification_question"]
+
+            tasks = plan.get("tasks", [])
+            if tasks:
+                # 按依赖排序：先执行无依赖的，再执行有依赖的
+                state["plan"] = tasks
+                for t in tasks:
+                    expert = t.get("expert", "")
+                    if expert not in matched:
+                        matched.append(expert)
+                trace_entry["planner"] = "llm_structured"
+        except Exception:
+            pass  # LLM 规划失败 → 降级到关键词
+
+        # Fallback: 关键词匹配
         if not matched:
-            # 无关键词匹配 → 使用 LLM 进行意图分类
-            try:
-                prompt = f"""分析以下买家问题的意图，从以下类别中选择（可多选）：
+            for intent_name, rule in INTENT_RULES.items():
+                if any(kw in question.lower() for kw in rule["keywords"]):
+                    matched.append(intent_name)
+            if not matched:
+                # LLM 意图分类
+                try:
+                    prompt = f"""分析以下买家问题的意图，从以下类别中选择（可多选）：
 order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知识库)
 
 只输出类别名，用逗号分隔。例如: "order,logistics"
 
 买家问题: {question[:200]}"""
-                response = self.llm.invoke([{"role": "user", "content": prompt}])
-                text = response.content if hasattr(response, 'content') else str(response)
-                matched = [i.strip() for i in text.split(",") if i.strip() in INTENT_RULES]
-            except Exception:
-                matched = ["knowledge"]  # 默认走知识库
+                    response = self.llm.invoke([{"role": "user", "content": prompt}])
+                    text = response.content if hasattr(response, 'content') else str(response)
+                    matched = [i.strip() for i in text.split(",") if i.strip() in INTENT_RULES]
+                except Exception:
+                    matched = ["knowledge"]
+            trace_entry["planner"] = "keyword_fallback"
 
         intents = matched if matched else ["knowledge"]
         trace_entry["intents"] = intents
 
-        # D.3: 查询执行记忆 — 相似问题复用成功策略
+        # D.3: 查询执行记忆
         try:
             from app.ai.memory import recall_best_strategy
             best = recall_best_strategy(self.merchant_id, question)
@@ -114,7 +203,7 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
             pass
 
         state["intents"] = intents
-        state["intent"] = intents[0]  # 主意图
+        state["intent"] = intents[0]
         state["trace"].append(trace_entry)
 
         return state
@@ -140,27 +229,69 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
         return state
 
     def dispatch_experts(self, state: SupervisorState) -> SupervisorState:
-        """节点 3: 串行执行专家（可升级为并行）。传递 chat_history 给子 Agent。"""
+        """节点 3: DAG 调度 (E.2)。优先执行无依赖专家，串行依赖链。"""
         question = state["question"]
         chat_history = state.get("chat_history", [])
-        experts = state["routed_experts"]
+        plan = state.get("plan", [])
         results = {}
 
-        for expert_name in experts:
-            try:
-                agent = self._get_expert(expert_name)
-                result = agent.process(question, context={"chat_history": chat_history})
-                results[expert_name] = result
-                state["trace"].append({
-                    "ts": datetime.now().isoformat(), "node": f"expert_{expert_name}",
-                    "steps": result.get("steps", []),
-                    "reply_preview": result.get("reply", "")[:100],
-                })
-            except Exception as e:
-                results[expert_name] = {"reply": f"专家{expert_name}调用失败: {e}", "steps": [], "confidence": 0.0}
-                state["trace"].append({
-                    "ts": datetime.now().isoformat(), "node": f"expert_{expert_name}",
-                    "error": str(e),
+        if plan:
+            # DAG 模式：按依赖拓扑排序执行
+            completed = set()
+            pending = list(plan)
+            prev_result = None
+
+            while pending:
+                # 找到已完成依赖的任务
+                ready = [t for t in pending
+                         if all(d in completed for d in t.get("depends_on", []))]
+                if not ready:
+                    # 死锁降级：执行所有剩余
+                    ready = pending
+
+                for task in ready[:3]:  # 最多 3 个并行
+                    expert_name = task["expert"]
+                    if expert_name in results:
+                        continue
+                    try:
+                        ctx = {"chat_history": chat_history}
+                        if task.get("depends_on"):
+                            # 传递前置专家的结果
+                            for dep in task["depends_on"]:
+                                if dep in results:
+                                    ctx[f"from_{dep}"] = results[dep].get("reply", "")
+                        agent = self._get_expert(expert_name)
+                        result = agent.process(question, context=ctx)
+                        results[expert_name] = result
+                        completed.add(expert_name)
+                        pending = [t for t in pending if t["expert"] != expert_name]
+                        state["trace"].append({
+                            "ts": datetime.now().isoformat(), "node": f"dag_{expert_name}",
+                            "priority": task.get("priority", 0),
+                            "deps": task.get("depends_on", []),
+                            "reply_preview": result.get("reply", "")[:100],
+                        })
+                    except Exception as e:
+                        results[expert_name] = {"reply": f"专家{expert_name}失败: {e}", "steps": [], "confidence": 0.0}
+                        completed.add(expert_name)
+                        pending = [t for t in pending if t["expert"] != expert_name]
+        else:
+            # Fallback: 简单串行
+            for expert_name in state["routed_experts"]:
+                try:
+                    agent = self._get_expert(expert_name)
+                    result = agent.process(question, context={"chat_history": chat_history})
+                    results[expert_name] = result
+                    state["trace"].append({
+                        "ts": datetime.now().isoformat(), "node": f"expert_{expert_name}",
+                        "steps": result.get("steps", []),
+                        "reply_preview": result.get("reply", "")[:100],
+                    })
+                except Exception as e:
+                    results[expert_name] = {"reply": f"专家{expert_name}调用失败: {e}", "steps": [], "confidence": 0.0}
+                    state["trace"].append({
+                        "ts": datetime.now().isoformat(), "node": f"expert_{expert_name}",
+                        "error": str(e),
                 })
 
         state["expert_results"] = results
@@ -213,26 +344,55 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
                                 "decision": "proceed", "has_useful": has_useful})
         return state
 
+    def clarify_check(self, state: SupervisorState) -> SupervisorState:
+        """节点 5 (E.3): 检查是否需要追问买家。"""
+        # 如果 classify 阶段已标记需要澄清
+        if state.get("needs_clarification") and state.get("clarification_question"):
+            state["final_reply"] = f"🤔 {state['clarification_question']}"
+            state["final_confidence"] = 0.0
+            state["trace"].append({
+                "ts": datetime.now().isoformat(), "node": "clarify",
+                "question": state["clarification_question"],
+            })
+            return state
+
+        # 如果聚合后置信度过低
+        if state.get("final_confidence", 1.0) < 0.3 and state.get("final_reply", "").startswith("抱歉"):
+            try:
+                prompt = f"""买家问题: {state['question']}
+当前回复: {state.get('final_reply', '')[:200]}
+信息不足。生成一条友好的追问，帮助买家缩小问题范围（<50字）。"""
+                response = self.llm.invoke([{"role": "user", "content": prompt}])
+                clarify = response.content if hasattr(response, 'content') else str(response)
+                state["final_reply"] = f"🤔 {clarify.strip()}"
+                state["final_confidence"] = 0.0
+                state["trace"].append({"ts": datetime.now().isoformat(), "node": "clarify", "low_confidence": True})
+            except Exception:
+                pass
+
+        return state
+
     # ===== 管线构建 =====
 
     def build_graph(self):
-        """构建 LangGraph StateGraph（含 RePlan 节点）。"""
+        """构建 LangGraph StateGraph（v3: +DAG +Clarify）。"""
         workflow = StateGraph(SupervisorState)
 
-        # 添加节点
         workflow.add_node("classify_intent", self.classify_intent)
         workflow.add_node("route_experts", self.route_experts)
         workflow.add_node("dispatch_experts", self.dispatch_experts)
         workflow.add_node("replan_check", self.replan_check)
         workflow.add_node("aggregate_reply", self.aggregate_reply)
+        workflow.add_node("clarify_check", self.clarify_check)
 
-        # 定义流程: classify → route → dispatch → replan → aggregate
+        # 流程: classify → route → dispatch → replan → aggregate → clarify → END
         workflow.set_entry_point("classify_intent")
         workflow.add_edge("classify_intent", "route_experts")
         workflow.add_edge("route_experts", "dispatch_experts")
         workflow.add_edge("dispatch_experts", "replan_check")
         workflow.add_edge("replan_check", "aggregate_reply")
-        workflow.add_edge("aggregate_reply", END)
+        workflow.add_edge("aggregate_reply", "clarify_check")
+        workflow.add_edge("clarify_check", END)
 
         return workflow.compile()
 
@@ -257,10 +417,13 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
             "chat_history": chat_history or [],
             "intent": "",
             "intents": [],
+            "plan": [],
             "routed_experts": [],
             "expert_results": {},
             "final_reply": "",
             "final_confidence": 0.0,
+            "needs_clarification": False,
+            "clarification_question": "",
             "replan_count": 0,
             "trace": [],
         }
