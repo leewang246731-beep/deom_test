@@ -32,6 +32,7 @@ class SupervisorState(TypedDict):
     expert_results: dict
     final_reply: str
     final_confidence: float
+    replan_count: int  # 重规划次数
     trace: Annotated[list, operator.add]  # append-only
 
 
@@ -171,23 +172,56 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
         })
         return state
 
+    def replan_check(self, state: SupervisorState) -> SupervisorState:
+        """节点 3.5: 检查专家结果质量 → 决定是否需要重规划。"""
+        results = state.get("expert_results", {})
+        if not results:
+            state["trace"].append({"ts": datetime.now().isoformat(), "node": "replan",
+                                    "decision": "skip", "reason": "no expert results"})
+            return state
+
+        # 判断是否有有效结果
+        has_useful = False
+        for name, result in results.items():
+            reply = result.get("reply", "") if result else ""
+            confidence = result.get("confidence", 0) if result else 0
+            if reply and "无法处理" not in str(reply) and "异常" not in str(reply) and confidence > 0:
+                has_useful = True
+                break
+
+        if not has_useful and state.get("replan_count", 0) < 1:
+            # 首轮无有效结果 → 触发一次重规划（降级到 knowledge 专家）
+            state["replan_count"] = state.get("replan_count", 0) + 1
+            state["intents"] = ["knowledge"]
+            state["routed_experts"] = ["rag"]
+            state["trace"].append({"ts": datetime.now().isoformat(), "node": "replan",
+                                    "decision": "retry_knowledge", "reason": "no useful expert results"})
+            # 重新执行专家调度
+            return self.dispatch_experts(state)
+
+        state["trace"].append({"ts": datetime.now().isoformat(), "node": "replan",
+                                "decision": "proceed", "has_useful": has_useful})
+        return state
+
     # ===== 管线构建 =====
 
     def build_graph(self):
-        """构建 LangGraph StateGraph。"""
+        """构建 LangGraph StateGraph（含 RePlan 节点）。"""
         workflow = StateGraph(SupervisorState)
 
         # 添加节点
         workflow.add_node("classify_intent", self.classify_intent)
         workflow.add_node("route_experts", self.route_experts)
         workflow.add_node("dispatch_experts", self.dispatch_experts)
+        workflow.add_node("replan_check", self.replan_check)
         workflow.add_node("aggregate_reply", self.aggregate_reply)
 
-        # 定义流程
+        # 定义流程: classify → route → dispatch → replan → aggregate
         workflow.set_entry_point("classify_intent")
         workflow.add_edge("classify_intent", "route_experts")
         workflow.add_edge("route_experts", "dispatch_experts")
-        workflow.add_edge("dispatch_experts", "aggregate_reply")
+        workflow.add_edge("dispatch_experts", "replan_check")
+        workflow.add_edge("replan_check", "aggregate_reply")
         workflow.add_edge("aggregate_reply", END)
 
         return workflow.compile()
@@ -217,6 +251,7 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
             "expert_results": {},
             "final_reply": "",
             "final_confidence": 0.0,
+            "replan_count": 0,
             "trace": [],
         }
 

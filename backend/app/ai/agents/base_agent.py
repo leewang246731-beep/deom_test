@@ -91,18 +91,24 @@ class BaseExpertAgent(ABC):
                 messages.insert(0, ("system", f"已知上下文:\n{ctx_str}"))
 
         try:
-            result = agent.invoke({"messages": messages})
+            result = agent.invoke({"messages": messages}, config={"recursion_limit": 10})
             messages = result.get("messages", [])
 
-            # 提取最终回复
+            # 提取工具调用步骤
             reply = ""
             steps = []
+            tool_call_count = 0
             for msg in messages:
                 if hasattr(msg, "tool_calls") and msg.tool_calls:
                     for tc in msg.tool_calls:
+                        tool_call_count += 1
                         steps.append({"tool": tc.get("name", "?"), "input": tc.get("args", {})})
                 if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
                     reply = msg.content
+
+            # 早停检测：连续多轮工具调用无进展
+            if tool_call_count >= 8 and not reply:
+                reply = "（查询轮次过多，已截断。请尝试更具体地描述问题。）"
 
             if not reply:
                 # 回退：使用最后一条 ToolMessage 的 observation

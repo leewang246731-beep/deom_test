@@ -29,7 +29,13 @@ def create_service_agent(merchant_id: int, role_prompt: str = ""):
         "- search_product_kb(query): 搜索商品\n"
         "- check_inventory(product_id): 查库存\n"
         "- search_ticket_history(query): 搜索工单\n\n"
-        "规则：必须调用工具获取真实数据。回复<200字。"
+        "【思维链 (CoT)】处理每个问题时，请按以下步骤思考:\n"
+        "1. 分析问题：买家在问什么？需要什么信息？\n"
+        "2. 确定所需：需要调用哪（几）个工具？\n"
+        "3. 执行查询：调用工具获取真实数据\n"
+        "4. 解读结果：工具返回了什么？有没有异常？\n"
+        "5. 形成回复：用亲切自然的语言回答\n\n"
+        "规则：必须先调用工具再回答。回复<200字。信息不足时主动说明。"
     )
 
     prompt = ChatPromptTemplate.from_messages([
