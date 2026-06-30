@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id, require_roles
+from app.core.config import settings
 from app.core.redis_client import get_redis, mkey
 from app.core.response import ok, page
 from app.database.session import get_db
@@ -142,7 +143,7 @@ def refund_order(
     mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    """售后：Redis 分布式锁防并发，Mock 模式直接标记 refunded。"""
+    """售后：Redis 锁防并发；real+vmall 联动审批售后；mock/非vmall 本地标记。"""
     shop_ids = _merchant_shop_ids(db, mid)
     o = db.query(ExternalOrder).filter(
         ExternalOrder.id == order_id,
@@ -158,22 +159,54 @@ def refund_order(
     try:
         if o.status in ("refunded", "refunding"):
             raise HTTPException(status_code=409, detail={"code": 40901, "msg": "订单已在售后流程"})
-        o.status = "refunded"
+        if o.status not in ("paid", "refunding"):
+            raise HTTPException(status_code=400, detail={"code": 40001, "msg": "当前订单状态不允许售后"})
+
+        before_status = o.status
+        vmall_notified = False
+
+        # real 模式 + vmall 店铺 + 有 after_sale_id → 联动 vmall 审批
+        shop = db.query(PlatformShop).filter(PlatformShop.id == o.shop_id).first()
+        if (settings.PLATFORM_MODE == "real" and shop and shop.platform_type == "vmall"
+                and shop.access_token and o.after_sale_id):
+            from app.core.platform_connector.vmall import V3Connector
+            from app.core.platform_connector.runner import run_connector
+            connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+            ok, data, err = run_connector(
+                connector.approve_after_sale(o.after_sale_id, "approve", "SaaS平台审核通过")
+            )
+            if ok:
+                o.status = "refunded"
+                o.after_sale_status = "approved"
+                vmall_notified = True
+            else:
+                # vmall 联动失败：订单保持 refunding，返回错误
+                _write_audit(db, mid, current.user_id, current.username, "order",
+                             order_id, before_status, "refunding",
+                             f"vmall_approve_failed: {err}")
+                raise HTTPException(
+                    status_code=502,
+                    detail={"code": 50201, "msg": f"vMall 售后审批失败，已挂起: {err}"},
+                )
+        else:
+            o.status = "refunded"
+
         db.commit()
 
-        # C5 跨系统联动：vMall 订单同步通知 vMall 售后审批
-        vmall_result = None
-        try:
-            shop = db.query(PlatformShop).filter(PlatformShop.id == o.shop_id).first()
-            if shop and shop.platform_type == "vmall" and shop.access_token:
-                from app.core.platform_connector.vmall import V3Connector
-                connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
-                # 尝试查找对应的售后单并审批
-                sale_id = o.platform_order_id  # vMall 订单号可关联售后
-                vmall_result = connector.approve_after_sale(sale_id, "approve", "SaaS平台审核通过")
-        except Exception:
-            pass  # vMall 通知非关键路径
-
-        return ok({"id": o.id, "status": o.status, "vmall_notified": vmall_result is not None}, msg="售后成功")
+        _write_audit(db, mid, current.user_id, current.username, "order",
+                     order_id, before_status, o.status,
+                     f"vmall_notified={vmall_notified}")
+        return ok({"id": o.id, "status": o.status, "vmall_notified": vmall_notified}, msg="售后成功")
     finally:
         r.delete(lock_key)
+
+
+def _write_audit(db, merchant_id, user_id, username, target_type, target_id, before_val, after_val, extra):
+    from app.models.audit_log import AuditLog
+    import json
+    db.add(AuditLog(
+        merchant_id=merchant_id, user_id=user_id, username=username,
+        action="status_change", target_type=target_type, target_id=target_id,
+        detail_json=json.dumps({"before": before_val, "after": after_val, "extra": extra}, ensure_ascii=False),
+        ip="",
+    ))
