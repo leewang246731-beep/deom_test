@@ -53,6 +53,10 @@
 
     <!-- 催单话术结果弹窗 (BUG-004) -->
     <el-dialog v-model="remindVisible" title="催单话术" width="650px">
+      <div style="margin-bottom:12px">
+        <el-tag type="success">已发送 {{ sentCount }}</el-tag>
+        <el-tag v-if="skippedCount" type="info" style="margin-left:8px">跳过 {{ skippedCount }}（冷却中）</el-tag>
+      </div>
       <el-alert v-if="!reminders.length" type="info" :closable="false" title="当前无待催付订单" />
       <div v-else v-for="(r, i) in reminders" :key="i" style="padding:10px;margin-bottom:8px;background:#fafafa;border-radius:6px;border:1px solid #ebeef5">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -85,6 +89,8 @@ const detail = ref(null)
 const detailLoading = ref(false)
 const remindVisible = ref(false)
 const reminders = ref([])
+const sentCount = ref(0)
+const skippedCount = ref(0)
 const statuses = ['pending', 'paid', 'shipped', 'completed', 'refunding', 'refunded']
 
 function statusTag(s) {
@@ -133,8 +139,10 @@ async function handleRemind() {
   try {
     const shopId = filters.shop_id || shops.value[0]?.id
     if (!shopId) { ElMessage.warning('请先选择店铺'); reminding.value = false; return }
-    const res = await remindPayment(shopId)
+    const res = await remindPayment(shopId, 20, 0)
     reminders.value = res.data?.reminders || []
+    sentCount.value = res.data?.sent_count || 0
+    skippedCount.value = res.data?.skipped_count || 0
     remindVisible.value = true
     const count = reminders.value.length
     if (count > 0) {
