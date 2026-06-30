@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     LOGIN_RATE_LIMIT: int = 10  # 每分钟每IP最大尝试次数
     LOGIN_RATE_WINDOW: int = 60  # 限流窗口（秒）
 
+    # ===== 催单冷却时间 =====
+    REMINDER_COOLDOWN_SECONDS: int = 21600  # 6 hours
+
     @property
     def DATABASE_URL(self) -> str:
         """SQLAlchemy 连接串：mysql+pymysql://用户:密码@主机:端口/库名"""

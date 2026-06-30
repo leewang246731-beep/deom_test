@@ -41,4 +41,6 @@ class ExternalOrder(Base):
     receiver_address = Column(String(500), nullable=True)
     pay_time = Column(DateTime, nullable=True)
     ship_time = Column(DateTime, nullable=True)
+    after_sale_id = Column(BigInteger, nullable=True, comment="vMall 售后单 id")
+    after_sale_status = Column(String(20), nullable=True, comment="created/approved/rejected")
     created_at = Column(DateTime, server_default=func.now())

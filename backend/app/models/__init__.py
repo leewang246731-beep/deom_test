@@ -26,6 +26,7 @@ from app.models.service_mode import ServiceModeConfig, AutoReplyLog
 from app.models.audit_log import AuditLog
 from app.models.webhook_delivery_log import WebhookDeliveryLog
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
+from app.models.order_reminder import OrderReminder
 
 __all__ = [
     "Merchant", "MerchantUser", "PlatformUser",
@@ -37,4 +38,5 @@ __all__ = [
     "ServiceModeConfig", "AutoReplyLog",
     "AuditLog", "WebhookDeliveryLog",
     "KbDocument", "KbChunk", "KbConversation", "KbMessage",
+    "OrderReminder",
 ]
