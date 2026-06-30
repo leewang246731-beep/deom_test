@@ -204,14 +204,25 @@ def _handle_message(db: Session, data: dict):
         db.add(conv)
         db.flush()
 
-    # 已有会话但 product_id 为空 → 补绑（之前因匹配 bug 导致丢失的商品上下文）
+    # 已有会话但 product_id 为空 → 补绑
     if conv.product_id is None:
         vm_pid = data.get("product_id")
         if vm_pid:
+            # 1) 精确匹配: shop + platform_product_id
             ep = db.query(ExternalProduct).filter(
                 ExternalProduct.platform_product_id == f"vm_{vm_pid}",
                 ExternalProduct.shop_id == conv.shop_id,
             ).first()
+            # 2) 放宽: 同 merchant 任意 shop
+            if not ep:
+                from app.models.platform_shop import PlatformShop
+                shop_ids = [r[0] for r in db.query(PlatformShop.id).filter(
+                    PlatformShop.merchant_id == db.query(PlatformShop).get(conv.shop_id).merchant_id
+                ).all()] if conv.shop_id else []
+                ep = db.query(ExternalProduct).filter(
+                    ExternalProduct.platform_product_id == f"vm_{vm_pid}",
+                    ExternalProduct.shop_id.in_(shop_ids),
+                ).first() if shop_ids else None
             if ep:
                 conv.product_id = ep.id
 
@@ -254,9 +265,10 @@ async def _maybe_auto_reply(db: Session, data: dict):
     question = content.get("text", "") if isinstance(content, dict) else str(content)
     if not question:
         return
-    # 兜底：商品上下文缺失 + 指代词 → 反问澄清，不硬猜
-    DEMO_PRONOUNS = ["这个", "这款", "它", "这", "那个", "那款", "多少钱", "什么价格", "价格", "有货吗", "有没有货"]
-    if conv.product_id is None and any(w in question for w in DEMO_PRONOUNS):
+    # 兜底：商品上下文缺失 + 纯指代词（短问题）→ 反问澄清，不硬猜
+    # 仅拦截「这个多少钱」这类完全依赖商品上下文的短问题；正常关键词留给 AI 处理
+    PURE_DEMO = ["这个", "这款", "那个", "那款", "它"]
+    if conv.product_id is None and len(question) < 25 and any(w in question for w in PURE_DEMO):
         reply = "亲，您咨询的是哪款商品呢？方便发下商品链接或告诉我具体的商品名称吗～"
         msgs = list(conv.messages_json or [])
         msgs.append({"role": "service", "content": reply, "time": datetime.now().isoformat(), "auto": True})
