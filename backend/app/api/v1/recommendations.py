@@ -4,7 +4,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_effective_merchant_id, get_current_user, require_roles
 from app.core.response import ok
 from app.database.session import get_db
 from app.models.product_recommendation_rule import ProductRecommendationRule
@@ -16,13 +16,13 @@ router = APIRouter(prefix="/recommendations", tags=["推荐"])
 @router.post("/similar")
 def similar_products(
     body: SimilarProductsRequest,
-    current: CurrentUser = Depends(get_current_merchant),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """相似商品推荐（三路融合）。"""
     from app.services.recommendation import recommend_similar
     results = recommend_similar(
-        db, current.merchant_id,
+        db, mid,
         product_id=body.product_id,
         shop_id=body.shop_id,
         top_k=body.top_k or 10,
@@ -35,13 +35,13 @@ def similar_products(
 @router.post("/for-buyer")
 def buyer_recommendations(
     body: BuyerRecommendationRequest,
-    current: CurrentUser = Depends(get_current_merchant),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """基于买家画像推荐。"""
     from app.services.recommendation import recommend_for_buyer
     results = recommend_for_buyer(
-        db, current.merchant_id,
+        db, mid,
         buyer_openid=body.buyer_openid,
         shop_id=body.shop_id,
         top_k=body.top_k or 10,
@@ -55,21 +55,23 @@ def hot_products(
     top_k: int = Query(10),
     range_days: int = Query(7),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """热门商品榜单。"""
     from app.services.recommendation import recommend_hot
-    results = recommend_hot(db, current.merchant_id, shop_id, top_k, range_days)
+    results = recommend_hot(db, mid, shop_id, top_k, range_days)
     return ok({"recommendations": results})
 
 
 @router.get("/rules")
 def list_rules(
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     rules = db.query(ProductRecommendationRule).filter(
-        ProductRecommendationRule.merchant_id == current.merchant_id
+        ProductRecommendationRule.merchant_id == mid
     ).order_by(ProductRecommendationRule.priority.desc()).all()
     return ok([{
         "id": r.id, "product_id": r.product_id,
@@ -82,10 +84,11 @@ def list_rules(
 def create_rule(
     body: RecommendationRuleCreate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     rule = ProductRecommendationRule(
-        merchant_id=current.merchant_id,
+        merchant_id=mid,
         product_id=body.product_id,
         recommended_product_id=body.recommended_product_id,
         rule_type=body.rule_type or "manual",
@@ -101,11 +104,12 @@ def update_rule(
     rule_id: int,
     body: RecommendationRuleUpdate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     rule = db.query(ProductRecommendationRule).filter(
         ProductRecommendationRule.id == rule_id,
-        ProductRecommendationRule.merchant_id == current.merchant_id,
+        ProductRecommendationRule.merchant_id == mid,
     ).first()
     if not rule:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "规则不存在"})
@@ -121,6 +125,7 @@ def update_rule(
 def auto_generate_rules(
     top_k: int = Query(20, ge=5, le=100),
     current: CurrentUser = Depends(require_roles("admin")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """从共购矩阵自动生成关联规则"""
@@ -131,13 +136,13 @@ def auto_generate_rules(
     created = 0
     for p in pairs:
         exist = db.query(ProductRecommendationRule).filter(
-            ProductRecommendationRule.merchant_id == current.merchant_id,
+            ProductRecommendationRule.merchant_id == mid,
             ProductRecommendationRule.product_id == p.product_id,
             ProductRecommendationRule.recommended_product_id == p.co_product_id,
         ).first()
         if not exist:
             db.add(ProductRecommendationRule(
-                merchant_id=current.merchant_id,
+                merchant_id=mid,
                 product_id=p.product_id,
                 recommended_product_id=p.co_product_id,
                 rule_type="auto",
@@ -152,11 +157,12 @@ def auto_generate_rules(
 def delete_rule(
     rule_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     rule = db.query(ProductRecommendationRule).filter(
         ProductRecommendationRule.id == rule_id,
-        ProductRecommendationRule.merchant_id == current.merchant_id,
+        ProductRecommendationRule.merchant_id == mid,
     ).first()
     if not rule:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "规则不存在"})
@@ -168,10 +174,11 @@ def delete_rule(
 @router.post("/rebuild-co-purchase")
 def rebuild_co_purchase(
     current: CurrentUser = Depends(require_roles("admin")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """重建协同过滤矩阵（仅 admin）。"""
     from app.services.recommendation import rebuild_co_purchase, rebuild_buyer_profiles
-    co = rebuild_co_purchase(db, current.merchant_id)
-    bp = rebuild_buyer_profiles(db, current.merchant_id)
+    co = rebuild_co_purchase(db, mid)
+    bp = rebuild_buyer_profiles(db, mid)
     return ok({"co_purchase_pairs": co, "buyer_profiles": bp}, msg="重建完成")
