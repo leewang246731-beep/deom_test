@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_user, get_current_merchant, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id, require_roles
 from app.core.response import ok, page
 from app.core.security import hash_password
 from app.database.session import get_db
@@ -29,14 +29,16 @@ def list_users(
     role: str = Query(None),
     merchant_id: int = Query(None),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     q = db.query(MerchantUser)
-    # 平台视角看全部商户用户，商户视角只看自己
     if current.token_type == "access":
         q = q.filter(MerchantUser.merchant_id == current.merchant_id)
     elif merchant_id:
         q = q.filter(MerchantUser.merchant_id == merchant_id)
+    else:
+        q = q.filter(MerchantUser.merchant_id == mid)
     if role:
         q = q.filter(MerchantUser.role == role)
     total = q.count()
@@ -48,10 +50,11 @@ def list_users(
 def create_user(
     body: UserCreate,
     current: CurrentUser = Depends(require_roles("admin")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     exist = db.query(MerchantUser).filter(
-        MerchantUser.merchant_id == current.merchant_id,
+        MerchantUser.merchant_id == mid,
         MerchantUser.username == body.username,
     ).first()
     if exist:
@@ -59,7 +62,7 @@ def create_user(
     if body.role not in ("admin", "manager", "service"):
         raise HTTPException(status_code=400, detail={"code": 40002, "msg": "角色无效"})
     u = MerchantUser(
-        merchant_id=current.merchant_id,
+        merchant_id=mid,
         username=body.username,
         password_hash=hash_password(body.password),
         display_name=body.display_name or body.username,
@@ -77,11 +80,12 @@ def update_user(
     user_id: int,
     body: UserUpdate,
     current: CurrentUser = Depends(require_roles("admin")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     u = db.query(MerchantUser).filter(
         MerchantUser.id == user_id,
-        MerchantUser.merchant_id == current.merchant_id,
+        MerchantUser.merchant_id == mid,
     ).first()
     if not u:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "用户不存在"})
@@ -102,11 +106,12 @@ def update_user(
 def delete_user(
     user_id: int,
     current: CurrentUser = Depends(require_roles("admin")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     u = db.query(MerchantUser).filter(
         MerchantUser.id == user_id,
-        MerchantUser.merchant_id == current.merchant_id,
+        MerchantUser.merchant_id == mid,
     ).first()
     if not u:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "用户不存在"})
