@@ -145,6 +145,7 @@ class ServiceModeConfigUpdate(BaseModel):
     fallback_template: Optional[str] = None
     busy_template: Optional[str] = None
     offline_template: Optional[str] = None
+    offline_template: Optional[str] = None
 
 
 class ConversationModeSwitch(BaseModel):
@@ -209,15 +210,20 @@ class SkillMemberAdd(BaseModel):
 
 # ===== SLA =====
 class SLAPolicyCreate(BaseModel):
-    name: str
     priority: str
     response_minutes: int = 30
     resolve_minutes: int = 480
+    escalate_minutes: Optional[int] = None
+    is_active: Optional[int] = 1
 
 
 class SLAPolicyUpdate(BaseModel):
-    name: Optional[str] = None
     priority: Optional[str] = None
+    response_minutes: Optional[int] = None
+    resolve_minutes: Optional[int] = None
+    escalate_minutes: Optional[int] = None
+    escalate_to: Optional[int] = None
+    is_active: Optional[int] = None
     response_minutes: Optional[int] = None
     resolve_minutes: Optional[int] = None
 

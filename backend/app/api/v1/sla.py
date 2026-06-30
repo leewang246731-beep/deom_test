@@ -29,7 +29,9 @@ def create_policy(body: SLAPolicyCreate, current: CurrentUser = Depends(require_
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "优先级必须为 P0/P1/P2/P3"})
     p = SLAPolicy(merchant_id=mid, priority=body.priority,
                   response_minutes=body.response_minutes,
-                  resolve_minutes=body.resolve_minutes)
+                  resolve_minutes=body.resolve_minutes,
+                  escalate_minutes=body.escalate_minutes,
+                  is_active=body.is_active if body.is_active is not None else 1)
     db.add(p)
     db.commit()
     return ok({"id": p.id}, msg="已创建")
