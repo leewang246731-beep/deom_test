@@ -230,18 +230,19 @@ def refund_order(
             from app.core.platform_connector.vmall import V3Connector
             from app.core.platform_connector.runner import run_connector
             connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
-            ok, data, err = run_connector(
+            success, data, err = run_connector(
                 connector.approve_after_sale(o.after_sale_id, "approve", "SaaS平台审核通过")
             )
-            if ok:
+            if success:
                 o.status = "refunded"
                 o.after_sale_status = "approved"
                 vmall_notified = True
             else:
-                # vmall 联动失败：订单保持 refunding，返回错误
+                # vmall 联动失败：订单保持 refunding，记录审计后返回错误
                 _write_audit(db, mid, current.user_id, current.username, "order",
                              order_id, before_status, "refunding",
                              f"vmall_approve_failed: {err}")
+                db.commit()  # 持久化审计日志（订单状态未变）
                 raise HTTPException(
                     status_code=502,
                     detail={"code": 50201, "msg": f"vMall 售后审批失败，已挂起: {err}"},
@@ -249,11 +250,11 @@ def refund_order(
         else:
             o.status = "refunded"
 
-        db.commit()
-
         _write_audit(db, mid, current.user_id, current.username, "order",
                      order_id, before_status, o.status,
                      f"vmall_notified={vmall_notified}")
+        db.commit()
+
         return ok({"id": o.id, "status": o.status, "vmall_notified": vmall_notified}, msg="售后成功")
     finally:
         r.delete(lock_key)
