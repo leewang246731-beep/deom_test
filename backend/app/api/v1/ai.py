@@ -35,7 +35,7 @@ async def ai_suggest(
         return ok(result)
     except Exception as e:
         return ok({
-            "suggestions": [{"content": "（AI 话术待步骤6 接入）", "source": "placeholder", "confidence": 0}],
+            "suggestions": [{"content": "（AI 话术生成失败，请手动回复）", "source": "placeholder", "confidence": 0}],
             "note": f"{e}",
         })
 
@@ -66,7 +66,7 @@ def ai_search(
         from app.services.ai_suggest import knowledge_search
         return ok({"results": knowledge_search(mid, body.query, body.top_k)})
     except Exception as e:
-        return ok({"results": [], "note": f"AI 搜索待步骤6 接入: {e}"})
+        return ok({"results": [], "note": f"AI 搜索失败: {e}"})
 
 
 @router.post("/suggest/log")

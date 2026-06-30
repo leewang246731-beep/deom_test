@@ -258,4 +258,4 @@ async def _ws_ai_suggest(merchant_id: int, msg: dict) -> list:
             db.close()
     except Exception:
         await asyncio.sleep(0)
-        return [{"content": "（AI 话术待步骤6 接入）", "source": "placeholder", "confidence": 0}]
+        return [{"content": "（AI 话术生成失败，请手动回复）", "source": "placeholder", "confidence": 0}]
