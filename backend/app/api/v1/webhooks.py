@@ -65,6 +65,20 @@ async def vmall_webhook(request: Request):
             await _maybe_auto_reply(db, data)
         elif event == "AFTER_SALE_CREATED":
             _upsert_order(db, data, "refunding")
+            # 回写 vmall 售后单 id（refund_order 联动需要）
+            order_no = data.get("order_no") or str(data.get("order_id", data.get("id", "")))
+            sale_id = data.get("id")  # vmall VmAfterSale.id
+            if order_no and sale_id:
+                shop = _resolve_shop(db, data)
+                if shop:
+                    exist = db.query(ExternalOrder).filter(
+                        ExternalOrder.shop_id == shop.id,
+                        ExternalOrder.platform_order_id == order_no,
+                    ).first()
+                    if exist:
+                        exist.after_sale_id = sale_id
+                        exist.after_sale_status = "created"
+                        db.commit()
         else:
             status = "ignored"
             error_msg = f"未知事件类型: {event}"
