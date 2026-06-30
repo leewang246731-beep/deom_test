@@ -115,9 +115,10 @@ def remind_pending(
             continue
 
         # 落库发送记录
+        ch = "vmall" if settings.PLATFORM_MODE == "real" else "local"
         db.add(OrderReminder(
             merchant_id=mid, shop_id=body.shop_id, order_id=order_id,
-            buyer_openid=str(buyer_openid), content=content, channel="vmall",
+            buyer_openid=str(buyer_openid), content=content, channel=ch,
             sent_at=datetime.now(),
         ))
 
@@ -149,7 +150,7 @@ def remind_pending(
         "sent_count": sent_count,
         "skipped_count": skipped_count,
         "total_pending": reminders_data.get("total_pending", 0),
-        "has_more": len(reminders) >= limit,
+        "has_more": reminders_data.get("has_more", False),
     })
 
 
