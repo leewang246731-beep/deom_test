@@ -5,12 +5,44 @@ Multi-Agent System Entry Point — SaaS v2.1.0
   create_service_agent() → 传统单 ReAct Agent (向后兼容)
   create_supervisor_agent() → Supervisor-Worker 多智能体 (NEW)
   run_agent() → 统一执行入口 (自动选择模式)
+  _use_multi_agent() / _build_agent() → 单/多 Agent 二选一开关 (USE_MULTI_AGENT)
 """
+import logging
+import os
+
 from langgraph.prebuilt import create_react_agent
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.ai.tools import get_agent_tools
 from app.services.llm import ChatDashScope
+
+
+# ===== 单/多 Agent 二选一开关 =====
+
+def _use_multi_agent() -> bool:
+    """唯一开关：USE_MULTI_AGENT 环境变量，严格布尔归一化。
+
+    仅当值为 "true" / "1" / "yes"(忽略大小写与前后空白)时判为开启;
+    其余一切值(空字符串、None、拼写错误)一律判为关闭。
+    """
+    raw = os.getenv("USE_MULTI_AGENT", "false")
+    return raw.strip().lower() in ("true", "1", "yes")
+
+
+def _build_agent(merchant_id: int, role_prompt: str = ""):
+    """根据 USE_MULTI_AGENT 创建 Agent 实例，保证任意时刻有且仅有一个实例。
+
+    分支结构:
+      - USE_MULTI_AGENT=true  → create_supervisor_agent (多智能体)
+      - USE_MULTI_AGENT=false → create_service_agent   (单智能体, 默认)
+      - 构造失败              → 自动回退到 create_service_agent + 告警日志
+    """
+    if _use_multi_agent():
+        try:
+            return create_supervisor_agent(merchant_id, role_prompt)
+        except Exception as e:
+            logging.warning("Supervisor 构造失败，回退单 Agent: %s", e)
+    return create_service_agent(merchant_id, role_prompt)
 
 
 # ===== 传统单 Agent (向后兼容) =====
@@ -28,14 +60,20 @@ def create_service_agent(merchant_id: int, role_prompt: str = ""):
         "- check_logistics(tracking_no): 查询物流\n"
         "- search_product_kb(query): 搜索商品\n"
         "- check_inventory(product_id): 查库存\n"
-        "- search_ticket_history(query): 搜索工单\n\n"
+        "- search_ticket_history(query): 搜索工单\n"
+        "- web_search(query): 联网搜索公开信息（知识库无结果时的补充）\n\n"
         "【思维链 (CoT)】处理每个问题时，请按以下步骤思考:\n"
         "1. 分析问题：买家在问什么？需要什么信息？\n"
         "2. 确定所需：需要调用哪（几）个工具？\n"
         "3. 执行查询：调用工具获取真实数据\n"
         "4. 解读结果：工具返回了什么？有没有异常？\n"
         "5. 形成回复：用亲切自然的语言回答\n\n"
-        "规则：必须先调用工具再回答。回复<200字。信息不足时主动说明。"
+        "规则：\n"
+        "- 必须先调用工具再回答。\n"
+        "- 回复<200字。\n"
+        "- 工具没返回的商品/订单/物流信息，绝对禁止凭空编造。\n"
+        "- 所有搜索均无结果时，如实告知买家「暂未查到相关信息，建议联系人工客服」。\n"
+        "- 禁止在回复中提及任何工具未返回的具体商品名、价格或订单号。"
     )
 
     prompt = ChatPromptTemplate.from_messages([

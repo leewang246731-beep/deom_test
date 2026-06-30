@@ -69,8 +69,8 @@ def suggest_ticket_reply(merchant_id: int, ticket_title: str, ticket_description
     # ---- Agent 路径：涉及售后/物流/投诉走 Agent ----
     if _should_use_ticket_agent(ticket_title, ticket_description):
         try:
-            from app.ai.agent import create_service_agent, run_agent
-            agent = create_service_agent(merchant_id, "你是工单处理专家，优先使用 search_ticket_history 查询历史方案。")
+            from app.ai.agent import _build_agent, run_agent
+            agent = _build_agent(merchant_id, "你是工单处理专家，优先使用 search_ticket_history 查询历史方案。")
             result = run_agent(agent, f"工单：{text}\n请给出处理建议。")
             suggestions = [{"content": result["reply"], "source": "agent", "confidence": 0.85}]
             return suggestions

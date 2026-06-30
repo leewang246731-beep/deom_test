@@ -63,6 +63,14 @@ async def vmall_webhook(request: Request):
         elif event == "NEW_MESSAGE":
             _handle_message(db, data)
             await _maybe_auto_reply(db, data)
+            # 广播给对应商户的客服工作台 WebSocket
+            shop = _resolve_shop(db, data)
+            if shop:
+                from app.api.v1.conversations import broadcast_service_event
+                await broadcast_service_event(shop.merchant_id, "new_message", {
+                    "conversation_id": data.get("conversation_id"),
+                    "buyer_nick": data.get("buyer_nick", ""),
+                })
         elif event == "AFTER_SALE_CREATED":
             _upsert_order(db, data, "refunding")
             # 回写 vmall 售后单 id（refund_order 联动需要）

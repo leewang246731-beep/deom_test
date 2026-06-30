@@ -49,8 +49,8 @@ async function fetchData() {
   loading.value = true
   try {
     const data = await getProducts({ page: page.value, size: size.value })
-    list.value = data.items || []
-    total.value = data.total || 0
+    list.value = data.data?.items || []
+    total.value = data.data?.total || 0
   } catch { list.value = []; total.value = 0 }
   finally { loading.value = false }
 }

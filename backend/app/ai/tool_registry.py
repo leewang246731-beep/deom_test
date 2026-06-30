@@ -350,6 +350,36 @@ def build_get_buyer_profile_tool(merchant_id: int):
     return get_buyer_profile
 
 
+def build_web_search_tool(merchant_id: int):
+    """联网搜索 — 当知识库/商品库无结果时，搜索公开网页获取线索。tag: web, search, knowledge"""
+    @langchain_tool
+    def web_search(query: str) -> str:
+        """联网搜索公开信息。query 为搜索关键词。返回网页标题和摘要。用于知识库无结果时的补充搜索。"""
+        import re
+        import urllib.request
+        import urllib.parse
+        try:
+            url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            # 提取结果片段
+            snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</(?:a|div)>', html, re.DOTALL)
+            titles = re.findall(r'class="result__title"[^>]*>.*?<a[^>]*>(.*?)</a>', html, re.DOTALL)
+            urls = re.findall(r'class="result__url"[^>]*>(.*?)</(?:a|div)>', html, re.DOTALL)
+            if not snippets:
+                return "未找到相关网页结果，建议尝试其他关键词或联系人工客服。"
+            lines = ["以下是联网搜索结果："]
+            for i in range(min(len(snippets), 5)):
+                title = re.sub(r'<[^>]+>', '', titles[i] if i < len(titles) else '').strip() or "(无标题)"
+                snippet = re.sub(r'<[^>]+>', '', snippets[i]).strip()[:250]
+                lines.append(f"[{i+1}] {title}\n   摘要: {snippet}")
+            return "\n\n".join(lines)
+        except Exception as e:
+            return f"联网搜索暂时不可用 ({e})，建议基于已有知识库回复或转人工。"
+    return web_search
+
+
 # ===== 初始化全局注册表 =====
 
 def init_registry(merchant_id: int) -> ToolRegistry:
@@ -369,5 +399,6 @@ def init_registry(merchant_id: int) -> ToolRegistry:
     registry.register(build_create_ticket_tool(merchant_id), tags=["ticket", "action"])
     registry.register(build_recommend_products_tool(merchant_id), tags=["product", "recommendation"])
     registry.register(build_get_buyer_profile_tool(merchant_id), tags=["buyer", "query"])
+    registry.register(build_web_search_tool(merchant_id), tags=["web", "search", "knowledge"])
 
     return registry

@@ -15,10 +15,8 @@
         <el-form-item label="库存" prop="stock">
           <el-input-number v-model="form.stock" :min="0" />
         </el-form-item>
-        <el-form-item label="分类" prop="category_id">
-          <el-select v-model="form.category_id" placeholder="请选择分类" style="width:100%">
-            <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
-          </el-select>
+        <el-form-item label="分类" prop="category_path">
+          <el-input v-model="form.category_path" placeholder="如：数码/手机" />
         </el-form-item>
         <el-form-item label="描述" prop="description">
           <el-input v-model="form.description" type="textarea" :rows="4" />
@@ -50,10 +48,9 @@ const router = useRouter()
 const isEdit = computed(() => !!route.params.id)
 const formRef = ref(null)
 const loading = ref(false)
-const categories = ref([])
 
 const form = reactive({
-  name: '', price: 0, stock: 0, category_id: null,
+  name: '', price: 0, stock: 0, category_path: '',
   description: '', image_url: '', status: 1,
 })
 
@@ -66,7 +63,7 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       const data = await getProduct(route.params.id)
-      Object.assign(form, data)
+      Object.assign(form, data.data)
     } catch { /* handled */ }
   }
 })
@@ -85,7 +82,8 @@ async function handleSave() {
       ElMessage.success('添加成功')
     }
     router.back()
-  } catch { /* handled */ }
-  finally { loading.value = false }
+  } catch {
+    ElMessage.error('保存失败，请重试')
+  } finally { loading.value = false }
 }
 </script>

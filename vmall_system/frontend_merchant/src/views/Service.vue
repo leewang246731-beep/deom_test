@@ -58,7 +58,8 @@ const loading = ref(false)
 onMounted(async () => {
   loading.value = true
   try {
-    convs.value = await getConversations({ status: 'active' })
+    const res = await getConversations({ status: 'active' })
+    convs.value = res.data || []
   } catch { /* handled */ }
   finally { loading.value = false }
 })
@@ -66,7 +67,10 @@ onMounted(async () => {
 async function openChat(row) {
   currentConv.value = row
   chatVisible.value = true
-  try { messages.value = await getConvMessages(row.id) } catch { messages.value = [] }
+  try {
+    const res = await getConvMessages(row.id)
+    messages.value = res.data || []
+  } catch { messages.value = [] }
 }
 
 async function handleReply() {

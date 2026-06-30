@@ -31,8 +31,11 @@ def req(method, path, data=None, token=None, api_key=None):
             raw = resp.read().decode("utf-8")
             return resp.status, json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8") if e.fp else "{}"
-        return e.code, json.loads(raw) if raw else {}
+        raw = e.read().decode("utf-8") if e.fp else ""
+        try:
+            return e.code, json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            return e.code, {"error": raw}
     except Exception as e:
         return 0, {"error": str(e)}
 

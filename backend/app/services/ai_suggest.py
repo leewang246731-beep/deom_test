@@ -133,8 +133,8 @@ async def get_ai_suggestions(
     # ---- Agent 路径：订单/物流/库存/售后 → LangChain Agent ----
     if _should_use_agent(buyer_question):
         try:
-            from app.ai.agent import create_service_agent, run_agent
-            agent = create_service_agent(merchant_id, role_prompt)
+            from app.ai.agent import _build_agent, run_agent
+            agent = _build_agent(merchant_id, role_prompt)
             result = run_agent(agent, buyer_question,
                                [(h.get("role", ""), h.get("content", "")) for h in (conversation_history or [])])
             suggestions = [

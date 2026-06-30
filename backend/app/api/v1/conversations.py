@@ -23,6 +23,34 @@ from app.schemas import ConversationMessageSend
 router = APIRouter(tags=["客服工作台"])
 ws_router = APIRouter(tags=["客服工作台-WS"])  # 无 /api/v1 前缀，挂根路径
 
+# ===== WebSocket 连接池 (广播 new_conversation / new_message) =====
+_ws_clients: dict[int, set] = {}  # merchant_id → {WebSocket, ...}
+
+
+def _register_ws(merchant_id: int, ws: WebSocket):
+    _ws_clients.setdefault(merchant_id, set()).add(ws)
+
+
+def _unregister_ws(merchant_id: int, ws: WebSocket):
+    clients = _ws_clients.get(merchant_id)
+    if clients:
+        clients.discard(ws)
+        if not clients:
+            del _ws_clients[merchant_id]
+
+
+async def broadcast_service_event(merchant_id: int, event_type: str, data: dict | None = None):
+    """向指定商户的所有 WebSocket 客户端广播事件（非关键路径，异常静默）。"""
+    clients = _ws_clients.get(merchant_id, set())
+    dead = []
+    for ws in clients:
+        try:
+            await ws.send_json({"type": event_type, "data": data or {}})
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        clients.discard(ws)
+
 
 def _merchant_shop_ids(db: Session, merchant_id: int | None) -> list:
     q = db.query(PlatformShop.id)
@@ -197,6 +225,7 @@ async def ws_service(websocket: WebSocket, token: str = Query(...)):
         return
     merchant_id = payload.get("merchant_id")
     await websocket.accept()
+    _register_ws(merchant_id, websocket)
     await websocket.send_json({"type": "connected", "merchant_id": merchant_id})
     try:
         while True:
@@ -236,7 +265,9 @@ async def ws_service(websocket: WebSocket, token: str = Query(...)):
             else:
                 await websocket.send_json({"type": "ack", "received": msg.get("type")})
     except WebSocketDisconnect:
-        return
+        pass
+    finally:
+        _unregister_ws(merchant_id, websocket)
 
 
 async def _ws_ai_suggest(merchant_id: int, msg: dict) -> list:

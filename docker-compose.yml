@@ -75,6 +75,7 @@ services:
       LLM_MODEL: ${LLM_MODEL:-qwen-plus}
       LLM_API_BASE: ${LLM_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      USE_MULTI_AGENT: ${USE_MULTI_AGENT:-true}
       LOGIN_RATE_LIMIT: 10
       VMALL_BASE_URL: ${VMALL_BASE_URL:-http://vmall-backend:8020}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
