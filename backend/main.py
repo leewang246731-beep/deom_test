@@ -152,10 +152,11 @@ def health_check_db():
 
 
 # ===== 业务路由注册区（步骤4）=====
-from app.api.v1 import ai, audit, auth, categories, conversations, dashboard, orders, products, recommendations, shops, skill_groups, sla, tickets, users, webhook_logs, webhooks, service_mode, openapi
+from app.api.v1 import ai, audit, auth, categories, conversations, dashboard, merchants, orders, products, recommendations, shops, skill_groups, sla, tickets, users, webhook_logs, webhooks, service_mode, openapi
 
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(shops.router, prefix=settings.API_PREFIX)
+app.include_router(merchants.router, prefix=settings.API_PREFIX)
 app.include_router(products.router, prefix=settings.API_PREFIX)
 app.include_router(orders.router, prefix=settings.API_PREFIX)
 app.include_router(ai.router, prefix=settings.API_PREFIX)
