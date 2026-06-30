@@ -196,3 +196,43 @@ def send_message(body: dict, authorization: str = Header(None), db: Session = De
     c.last_message_at = datetime.now()
     db.commit()
     return ok({"id": msg.id})
+
+
+@router.post("/notifications")
+def send_notification(body: dict, authorization: str = Header(None), db: Session = Depends(get_db)):
+    """SaaS 推送买家通知（催单等）。按 buyer_id 查找或创建系统会话后写入消息。"""
+    _verify_token(authorization, db)
+    buyer_id = body.get("buyer_id")
+    order_id = body.get("order_id")
+    content = body.get("content", "")
+    msg_type = body.get("msg_type", "reminder")
+
+    if not buyer_id or not content:
+        raise HTTPException(status_code=400, detail={"code": 40001, "msg": "buyer_id 和 content 必填"})
+
+    # 查找或创建该买家的系统会话
+    conv = db.query(VmConversation).filter(
+        VmConversation.buyer_id == buyer_id,
+        VmConversation.status == "open",
+    ).first()
+    if not conv:
+        conv = VmConversation(
+            buyer_id=buyer_id,
+            product_id=0,
+            order_id=order_id or 0,
+            status="open",
+            last_message_at=datetime.now(),
+        )
+        db.add(conv)
+        db.flush()
+
+    msg = VmMessage(
+        conversation_id=conv.id,
+        sender_role="system",
+        msg_type=msg_type,
+        content_json={"text": content},
+    )
+    db.add(msg)
+    conv.last_message_at = datetime.now()
+    db.commit()
+    return ok({"id": msg.id, "conversation_id": conv.id})
