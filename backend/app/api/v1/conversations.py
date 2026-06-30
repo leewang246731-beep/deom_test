@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSock
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user
+from app.api.v1.dependencies import CurrentUser, get_current_user, get_effective_merchant_id
 from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import SessionLocal, get_db
@@ -52,10 +52,11 @@ def list_conversations(
     page_no: int = Query(1, alias="page", ge=1),
     page_size: int = Query(20, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
-    if not shop_ids and current.merchant_id is not None:
+    shop_ids = _merchant_shop_ids(db, mid)
+    if not shop_ids and mid is not None:
         return page([], 0, page_no, page_size)
     q = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids))
     if shop_id:
@@ -70,9 +71,11 @@ def list_conversations(
 @router.get("/conversations/export")
 def export_conversations(
     shop_id: int = Query(None), handled_status: str = Query(None),
-    current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db),
+    current: CurrentUser = Depends(get_current_user),
+    mid: int = Depends(get_effective_merchant_id),
+    db: Session = Depends(get_db),
 ):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     q = db.query(Conversation).filter(Conversation.shop_id.in_(shop_ids)) if shop_ids else db.query(Conversation).filter(False)
     if shop_id: q = q.filter(Conversation.shop_id == shop_id)
     if handled_status: q = q.filter(Conversation.handled_status == handled_status)
@@ -91,8 +94,8 @@ def export_conversations(
 
 
 @router.get("/conversations/{conv_id}")
-def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     c = db.query(Conversation).filter(
         Conversation.id == conv_id,
         Conversation.shop_id.in_(shop_ids) if shop_ids else True,
@@ -110,8 +113,8 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
 
 
 @router.post("/conversations/{conv_id}/assign")
-def assign_conversation(conv_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+def assign_conversation(conv_id: int, current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     c = db.query(Conversation).filter(
         Conversation.id == conv_id, Conversation.shop_id.in_(shop_ids) if shop_ids else False
     ).first()
@@ -123,9 +126,9 @@ def assign_conversation(conv_id: int, current: CurrentUser = Depends(get_current
 
 
 @router.post("/conversations/{conv_id}/messages")
-def send_conversation_message(conv_id: int, body: ConversationMessageSend, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
+def send_conversation_message(conv_id: int, body: ConversationMessageSend, current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     """客服发送消息 → 追加到 SaaS Conversation + 同步回 vMall（双向桥接：去程）"""
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+    shop_ids = _merchant_shop_ids(db, mid)
     c = db.query(Conversation).filter(
         Conversation.id == conv_id,
         Conversation.shop_id.in_(shop_ids) if shop_ids else False,
@@ -168,8 +171,8 @@ def send_conversation_message(conv_id: int, body: ConversationMessageSend, curre
 
 
 @router.post("/conversations/{conv_id}/close")
-def close_conversation(conv_id: int, current: CurrentUser = Depends(get_current_merchant), db: Session = Depends(get_db)):
-    shop_ids = _merchant_shop_ids(db, current.merchant_id)
+def close_conversation(conv_id: int, current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
+    shop_ids = _merchant_shop_ids(db, mid)
     c = db.query(Conversation).filter(
         Conversation.id == conv_id, Conversation.shop_id.in_(shop_ids) if shop_ids else False
     ).first()
