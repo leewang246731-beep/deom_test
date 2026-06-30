@@ -48,8 +48,10 @@ def _rrf_fusion(
     reply_results: dict,
     k: int = 60,
     top_n: int = 5,
+    current_product_id: int = None,
 ) -> list[dict]:
-    """RRF (Reciprocal Rank Fusion)：商品向量 + 话术向量 → 统一排序"""
+    """RRF (Reciprocal Rank Fusion)：商品向量 + 话术向量 → 统一排序。
+    若提供 current_product_id，匹配商品会获得加权提升。"""
     scores = {}
     for rank, (doc_id, meta, doc) in enumerate(zip(
         product_results.get("ids", [[]])[0],
@@ -57,6 +59,9 @@ def _rrf_fusion(
         product_results.get("documents", [[]])[0],
     )):
         rrf = 1.0 / (k + rank + 1)
+        # 当前咨询商品加权：RRF 值 × 2（确保排在前面）
+        if current_product_id and meta.get("product_id") == current_product_id:
+            rrf *= 2.0
         scores[doc_id] = {
             "content": doc, "meta": meta, "source": "product",
             "rrf": scores.get(doc_id, {}).get("rrf", 0) + rrf,
@@ -115,6 +120,25 @@ async def get_ai_suggestions(
     db: Session,
 ) -> dict:
     """话术建议 Pipeline：向量检索 → RRF → LLM 生成 3 条回复（含物流感知+角色感知）。"""
+    # ---- 当前商品上下文注入 ----
+    product_context = ""
+    if product_id:
+        try:
+            from app.models.external_product import ExternalProduct
+            ep = db.query(ExternalProduct).filter(ExternalProduct.id == product_id).first()
+            if ep:
+                product_context = (
+                    f"【当前咨询商品】用户正在浏览此商品，所有指代词如「这个」「这款」「它」默认指该商品。\n"
+                    f"- 商品名: {ep.title}\n"
+                    f"- 商品ID: {ep.id}\n"
+                    f"- 价格: ¥{float(ep.price):.2f}\n"
+                    f"- 库存: {ep.stock}件\n"
+                    f"- 分类: {ep.category_path or '未分类'}\n"
+                    f"- 描述: {ep.description or '无'}\n"
+                )
+        except Exception:
+            pass
+
     # ---- 角色 Prompt 注入 ----
     from app.services.mode_engine import get_role_prompt
     role_prompt = ""
@@ -135,7 +159,9 @@ async def get_ai_suggestions(
         try:
             from app.ai.agent import _build_agent, run_agent
             agent = _build_agent(merchant_id, role_prompt)
-            result = run_agent(agent, buyer_question,
+            # 注入商品上下文到问题中
+            augmented_question = f"{product_context}\n用户问题: {buyer_question}" if product_context else buyer_question
+            result = run_agent(agent, augmented_question,
                                [(h.get("role", ""), h.get("content", "")) for h in (conversation_history or [])])
             suggestions = [
                 {"content": result["reply"], "source": "agent", "confidence": 0.85}
@@ -159,7 +185,7 @@ async def get_ai_suggestions(
     products = query_products(merchant_id, vec, n_results=min(settings.RAG_TOP_K, 10))
     replies = query_replies(merchant_id, vec, n_results=min(settings.RAG_TOP_K, 10))
 
-    fused = _rrf_fusion(products, replies, k=60, top_n=5)
+    fused = _rrf_fusion(products, replies, k=60, top_n=5, current_product_id=product_id)
     if not fused:
         return {"suggestions": [{"content": "暂无相关参考，请手动回复。", "source": "fallback", "confidence": 0}],
                 "logistics": logistics_info}
@@ -186,7 +212,7 @@ async def get_ai_suggestions(
     role_block = f"\n【角色定位】：{role_prompt}\n" if role_prompt else ""
 
     prompt = f"""你是电商客服助手。基于以下信息，为买家问题生成3条回复建议。
-{role_block}{logistics_block}
+{product_context}{role_block}{logistics_block}
 商品信息：
 {product_info}
 
@@ -196,6 +222,7 @@ async def get_ai_suggestions(
 买家问题：{buyer_question}
 
 要求：语气自然亲切、直接回答买家问题、每条不超过200字。
+若提供了【当前咨询商品】，所有指代词默认指向该商品。仅当买家明确提到其他商品时才切换。
 若买家问物流相关，必须引用物流状态具体信息。
 用 --- 分隔三条建议。"""
 

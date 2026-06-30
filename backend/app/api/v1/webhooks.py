@@ -183,12 +183,16 @@ def _handle_message(db: Session, data: dict):
         if not shop:
             return
         buyer_id = data.get("buyer_id", "")
-        # vMall 的 product_id 与 SaaS external_products 主键不同源；conversations.product_id
-        # 有外键约束，直接写入外部 id 会触发 FK 违例导致会话静默创建失败。仅当该 id 在
-        # SaaS 商品库存在时才引用，否则置空。
-        ext_pid = data.get("product_id")
-        if ext_pid and not db.query(ExternalProduct.id).filter(ExternalProduct.id == ext_pid).first():
-            ext_pid = None
+        # vMall product_id → SaaS ExternalProduct.id 映射（通过 platform_product_id）
+        ext_pid = None
+        vm_pid = data.get("product_id")
+        if vm_pid:
+            ep = db.query(ExternalProduct).filter(
+                ExternalProduct.platform_product_id == f"vm_{vm_pid}",
+                ExternalProduct.shop_id == shop.id,
+            ).first()
+            if ep:
+                ext_pid = ep.id
         conv = Conversation(
             shop_id=shop.id,
             platform_conversation_id=platform_conv_id,
@@ -199,6 +203,17 @@ def _handle_message(db: Session, data: dict):
         )
         db.add(conv)
         db.flush()
+
+    # 已有会话但 product_id 为空 → 补绑（之前因匹配 bug 导致丢失的商品上下文）
+    if conv.product_id is None:
+        vm_pid = data.get("product_id")
+        if vm_pid:
+            ep = db.query(ExternalProduct).filter(
+                ExternalProduct.platform_product_id == f"vm_{vm_pid}",
+                ExternalProduct.shop_id == conv.shop_id,
+            ).first()
+            if ep:
+                conv.product_id = ep.id
 
     msgs = list(conv.messages_json or [])
     content = data.get("content", {})
@@ -238,6 +253,29 @@ async def _maybe_auto_reply(db: Session, data: dict):
     content = data.get("content", {})
     question = content.get("text", "") if isinstance(content, dict) else str(content)
     if not question:
+        return
+    # 兜底：商品上下文缺失 + 指代词 → 反问澄清，不硬猜
+    DEMO_PRONOUNS = ["这个", "这款", "它", "这", "那个", "那款", "多少钱", "什么价格", "价格", "有货吗", "有没有货"]
+    if conv.product_id is None and any(w in question for w in DEMO_PRONOUNS):
+        reply = "亲，您咨询的是哪款商品呢？方便发下商品链接或告诉我具体的商品名称吗～"
+        msgs = list(conv.messages_json or [])
+        msgs.append({"role": "service", "content": reply, "time": datetime.now().isoformat(), "auto": True})
+        conv.messages_json = msgs
+        conv.handled_status = "replied"
+        conv.last_message_at = datetime.now()
+        conv.auto_reply_count = (conv.auto_reply_count or 0) + 1
+        db.commit()
+        # 仍然回流到 vMall
+        target = f"{(shop.shop_url or 'http://vmall-backend:8020')}/api/v1/consumer/conversations/{conv_id}/messages/internal"
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                target,
+                data=json.dumps({"api_key": "vmall-internal-demo-key", "content": reply, "msg_type": "text"}).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, method="POST")
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass
         return
     try:
         from app.services.ai_suggest import get_ai_suggestions
