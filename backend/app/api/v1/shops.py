@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.v1.dependencies import CurrentUser, get_current_merchant, get_current_user, require_roles
+from app.api.v1.dependencies import CurrentUser, get_current_user, require_roles, get_effective_merchant_id
 from app.core.platform_connector import get_platform_connector
 from app.core.response import ok
 from app.database.session import get_db
@@ -31,10 +31,10 @@ def _get_owned_shop(db: Session, shop_id: int, merchant_id: int) -> PlatformShop
 
 
 @router.get("")
-def list_shops(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_shops(current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     q = db.query(PlatformShop)
-    if current.merchant_id is not None:
-        q = q.filter(PlatformShop.merchant_id == current.merchant_id)
+    if mid is not None:
+        q = q.filter(PlatformShop.merchant_id == mid)
     shops = q.order_by(PlatformShop.id).all()
     result = []
     for s in shops:
@@ -60,18 +60,19 @@ def list_shops(current: CurrentUser = Depends(get_current_user), db: Session = D
 def bind_shop(
     body: ShopCreate,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     # 重名检查
     exist = db.query(PlatformShop).filter(
-        PlatformShop.merchant_id == current.merchant_id,
+        PlatformShop.merchant_id == mid,
         PlatformShop.shop_name == body.shop_name,
     ).first()
     if exist:
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "店铺名称已存在"})
 
     shop = PlatformShop(
-        merchant_id=current.merchant_id,
+        merchant_id=mid,
         platform_type=body.platform_type,
         shop_name=body.shop_name,
         shop_url=body.shop_url,
@@ -88,9 +89,10 @@ def bind_shop(
 def unbind_shop(
     shop_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    shop = _get_owned_shop(db, shop_id, mid)
     # 级联删除该店铺商品/订单/会话
     db.query(Conversation).filter(Conversation.shop_id == shop_id).delete(synchronize_session=False)
     db.query(ExternalOrder).filter(ExternalOrder.shop_id == shop_id).delete(synchronize_session=False)
@@ -121,11 +123,11 @@ async def trigger_sync_all():
 
 
 @router.get("/connectors")
-def connector_status(current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def connector_status(current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     """各平台连接器状态总览。"""
     shops_q = db.query(PlatformShop)
-    if current.merchant_id is not None:
-        shops_q = shops_q.filter(PlatformShop.merchant_id == current.merchant_id)
+    if mid is not None:
+        shops_q = shops_q.filter(PlatformShop.merchant_id == mid)
     shops = shops_q.order_by(PlatformShop.id).all()
     result = []
     for s in shops:
@@ -142,10 +144,10 @@ def connector_status(current: CurrentUser = Depends(get_current_user), db: Sessi
 
 
 @router.get("/{shop_id}/status")
-def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_user), mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
     shop_q = db.query(PlatformShop).filter(PlatformShop.id == shop_id)
-    if current.merchant_id is not None:
-        shop_q = shop_q.filter(PlatformShop.merchant_id == current.merchant_id)
+    if mid is not None:
+        shop_q = shop_q.filter(PlatformShop.merchant_id == mid)
     shop = shop_q.first()
     if not shop:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "店铺不存在"})
@@ -160,10 +162,11 @@ def shop_status(shop_id: int, current: CurrentUser = Depends(get_current_user), 
 def generate_bind_token(
     shop_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """生成 vmall 绑定 token。"""
-    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    shop = _get_owned_shop(db, shop_id, mid)
     if shop.platform_type != "vmall":
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "仅 vmall 类型店铺可生成绑定 token"})
     if shop.bind_status == "active":
@@ -179,10 +182,11 @@ def generate_bind_token(
 def regenerate_bind_token(
     shop_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """重新生成绑定 token。"""
-    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    shop = _get_owned_shop(db, shop_id, mid)
     if shop.bind_status == "active":
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "已绑定无法重新生成，请先解绑"})
     token = secrets.token_urlsafe(24)
@@ -196,13 +200,14 @@ def regenerate_bind_token(
 async def sync_shop(
     shop_id: int,
     current: CurrentUser = Depends(require_roles("admin", "manager")),
+    mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
     """
     手动触发同步（替代二期 Celery）：拉取商品+订单 upsert 入库。
     新商品 embedding_status=pending，向量化由步骤6 的 AI Pipeline 回填。
     """
-    shop = _get_owned_shop(db, shop_id, current.merchant_id)
+    shop = _get_owned_shop(db, shop_id, mid)
     shop.sync_status = "syncing"
     db.commit()
     try:
@@ -255,7 +260,7 @@ async def sync_shop(
         if new_p > 0:
             try:
                 from app.services.ai_suggest import backfill_all
-                backfill_all(db, current.merchant_id, full_rebuild=False)
+                backfill_all(db, mid, full_rebuild=False)
             except Exception:
                 pass  # 非关键路径
 
