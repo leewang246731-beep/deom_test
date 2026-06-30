@@ -129,15 +129,16 @@ order(订单), logistics(物流), product(商品), ticket(工单), knowledge(知
         return state
 
     def dispatch_experts(self, state: SupervisorState) -> SupervisorState:
-        """节点 3: 串行执行专家（可升级为并行）。"""
+        """节点 3: 串行执行专家（可升级为并行）。传递 chat_history 给子 Agent。"""
         question = state["question"]
+        chat_history = state.get("chat_history", [])
         experts = state["routed_experts"]
         results = {}
 
         for expert_name in experts:
             try:
                 agent = self._get_expert(expert_name)
-                result = agent.process(question)
+                result = agent.process(question, context={"chat_history": chat_history})
                 results[expert_name] = result
                 state["trace"].append({
                     "ts": datetime.now().isoformat(), "node": f"expert_{expert_name}",

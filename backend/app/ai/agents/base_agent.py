@@ -55,19 +55,43 @@ class BaseExpertAgent(ABC):
         """
         执行专家处理流程。
 
+        Args:
+            question: 用户问题
+            context: 可选上下文 dict。支持 "chat_history" key (list of tuples/dicts)。
+
         Returns:
             {"reply": str, "steps": list, "confidence": float}
         """
         agent = self.get_agent()
-        msgs = [{"role": "user", "content": question}]
+        messages = []
 
-        # 注入上下文（如订单号、物流单号等）
+        # 注入对话历史（短期记忆）
+        chat_history = context.get("chat_history", []) if context else []
+        if chat_history:
+            from langchain_core.messages import HumanMessage, AIMessage
+            for item in chat_history[-6:]:  # 最近 6 轮
+                if isinstance(item, tuple):
+                    role, content = item
+                elif isinstance(item, dict):
+                    role, content = item.get("role", "user"), item.get("content", "")
+                else:
+                    continue
+                if role in ("assistant", "ai"):
+                    messages.append(AIMessage(content=str(content)))
+                else:
+                    messages.append(HumanMessage(content=str(content)))
+
+        messages.append(("user", question))
+
+        # 注入额外上下文（如订单号、物流单号等）
         if context:
-            ctx_str = "\n".join(f"{k}: {v}" for k, v in context.items())
-            msgs.insert(0, {"role": "system", "content": f"已知上下文:\n{ctx_str}"})
+            ctx_extra = {k: v for k, v in context.items() if k != "chat_history"}
+            if ctx_extra:
+                ctx_str = "\n".join(f"{k}: {v}" for k, v in ctx_extra.items())
+                messages.insert(0, ("system", f"已知上下文:\n{ctx_str}"))
 
         try:
-            result = agent.invoke({"messages": [("user", question)]})
+            result = agent.invoke({"messages": messages})
             messages = result.get("messages", [])
 
             # 提取最终回复
