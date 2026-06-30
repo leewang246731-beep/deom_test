@@ -48,6 +48,12 @@
       <el-table-column label="最近同步" width="170">
         <template #default="{ row }">{{ row.last_sync_at ? row.last_sync_at.slice(0, 16) : '从未' }}</template>
       </el-table-column>
+      <el-table-column label="Token" width="100">
+        <template #default="{ row }">
+          <el-tag v-if="row.access_token" type="success" size="small">有效</el-tag>
+          <el-tag v-else type="info" size="small">未获取</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="handleSync(row.id)" :loading="syncingId === row.id">同步</el-button>
