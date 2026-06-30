@@ -206,6 +206,140 @@ def build_check_logistics_tool(merchant_id: int):
     return check_logistics
 
 
+# ===== Phase C 新增业务工具 =====
+
+def build_deliver_order_tool(merchant_id: int):
+    """客服发货。tag: order, action"""
+    @langchain_tool
+    def deliver_order(order_id: int, company: str, tracking_no: str) -> str:
+        """为订单发货。order_id为订单ID，company为快递公司，tracking_no为运单号。返回发货结果。"""
+        from app.core.platform_connector.runner import run_connector
+
+        db = SessionLocal()
+        try:
+            sids = _shop_ids(db, merchant_id)
+            o = db.query(ExternalOrder).filter(
+                ExternalOrder.id == order_id,
+                ExternalOrder.shop_id.in_(sids),
+            ).first() if sids else None
+            if not o:
+                return f"订单{order_id}不存在"
+            if o.status != "paid":
+                return f"订单{order_id}状态为{o.status}，只能对待付款订单发货"
+
+            shop = db.query(PlatformShop).filter(
+                PlatformShop.id == o.shop_id,
+                PlatformShop.platform_type == "vmall",
+            ).first()
+            if shop and shop.access_token:
+                from app.core.platform_connector.vmall import V3Connector
+                connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+                ok, data, err = run_connector(connector.deliver_order(order_id, company, tracking_no))
+                if ok:
+                    o.status = "shipped"
+                    db.commit()
+                    return f"订单{o.id}已发货 (快递:{company} 单号:{tracking_no})"
+                return f"发货失败: {err}"
+            else:
+                # Mock 降级
+                o.status = "shipped"
+                db.commit()
+                return f"订单{o.id}已发货 (快递:{company} 单号:{tracking_no}) (演示模式)"
+        finally:
+            db.close()
+    return deliver_order
+
+
+def build_send_message_tool(merchant_id: int):
+    """向买家发送消息。tag: message, action"""
+    @langchain_tool
+    def send_buyer_message(buyer_id: int, content: str) -> str:
+        """向买家发送消息。buyer_id为买家ID，content为消息内容。返回发送结果。"""
+        from app.core.platform_connector.runner import run_connector
+
+        db = SessionLocal()
+        try:
+            shop = db.query(PlatformShop).filter(
+                PlatformShop.merchant_id == merchant_id,
+                PlatformShop.platform_type == "vmall",
+            ).first()
+            if shop and shop.access_token:
+                from app.core.platform_connector.vmall import V3Connector
+                connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+                ok, data, err = run_connector(
+                    connector.send_notification(buyer_id, 0, content)
+                )
+                if ok:
+                    return f"消息已发送给买家{buyer_id}"
+                return f"消息发送失败: {err}"
+            return f"消息已记录 (演示模式)"
+        finally:
+            db.close()
+    return send_buyer_message
+
+
+def build_create_ticket_tool(merchant_id: int):
+    """创建工单。tag: ticket, action"""
+    @langchain_tool
+    def create_support_ticket(title: str, description: str, priority: str = "medium") -> str:
+        """创建客服工单。title为标题，description为描述，priority为优先级(low/medium/high/urgent)。返回工单ID。"""
+        from app.models.ticket import Ticket
+        from app.models.ticket_category import TicketCategory
+
+        db = SessionLocal()
+        try:
+            # 尝试自动匹配分类
+            category_id = None
+            cats = db.query(TicketCategory).filter(
+                TicketCategory.merchant_id == merchant_id,
+            ).all()
+            if cats:
+                category_id = cats[0].id  # 默认使用第一个分类
+
+            ticket = Ticket(
+                merchant_id=merchant_id,
+                title=title,
+                description=description,
+                priority=priority if priority in ("low", "medium", "high", "urgent") else "medium",
+                status="pending",
+                category_id=category_id,
+                created_at=__import__('datetime').datetime.now(),
+            )
+            db.add(ticket)
+            db.commit()
+            db.refresh(ticket)
+            return f"工单已创建 (ID:{ticket.id} 标题:{title} 优先级:{priority})"
+        finally:
+            db.close()
+    return create_support_ticket
+
+
+def build_recommend_products_tool(merchant_id: int):
+    """推荐商品。tag: product, recommendation"""
+    @langchain_tool
+    def recommend_products(buyer_id: int = 0, query: str = "") -> str:
+        """为买家推荐商品。buyer_id为买家ID（可选），query为偏好关键词（可选）。返回推荐商品列表。"""
+        try:
+            from app.services.recommendation import get_recommendations_for_buyer
+            results = get_recommendations_for_buyer(merchant_id, buyer_id, top_k=5) if buyer_id else []
+            if not results and query:
+                from app.services.ai_suggest import semantic_search_products
+                results = semantic_search_products(merchant_id, query, shop_ids=[], top_k=5)
+
+            if not results:
+                return "暂无推荐商品"
+
+            lines = ["推荐商品:"]
+            for i, r in enumerate(results[:5], 1):
+                title = r.get("title", r.get("content", "?"))
+                price = r.get("price", "暂无")
+                lines.append(f"{i}. {title} (¥{price})")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"推荐服务暂时不可用: {e}"
+    return recommend_products
+
+
 # ===== 初始化全局注册表 =====
 
 def init_registry(merchant_id: int) -> ToolRegistry:
@@ -219,5 +353,10 @@ def init_registry(merchant_id: int) -> ToolRegistry:
     registry.register(build_search_product_tool(merchant_id), tags=["product", "knowledge", "search"])
     registry.register(build_check_inventory_tool(merchant_id), tags=["product", "inventory"])
     registry.register(build_search_ticket_tool(merchant_id), tags=["ticket", "knowledge", "search"])
+    # Phase C 新增业务工具
+    registry.register(build_deliver_order_tool(merchant_id), tags=["order", "action"])
+    registry.register(build_send_message_tool(merchant_id), tags=["message", "action"])
+    registry.register(build_create_ticket_tool(merchant_id), tags=["ticket", "action"])
+    registry.register(build_recommend_products_tool(merchant_id), tags=["product", "recommendation"])
 
     return registry
