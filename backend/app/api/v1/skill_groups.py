@@ -104,7 +104,14 @@ def add_member(group_id: int, body: SkillMemberAdd, current: CurrentUser = Depen
 @router.delete("/{group_id}/members/{user_id}")
 def remove_member(group_id: int, user_id: int,
                   current: CurrentUser = Depends(require_roles("admin", "manager")),
+                  mid: int = Depends(get_effective_merchant_id),
                   db: Session = Depends(get_db)):
+    g = db.query(SkillGroup).filter(
+        SkillGroup.id == group_id,
+        SkillGroup.merchant_id == mid,
+    ).first()
+    if not g:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "技能组不存在"})
     db.query(SkillMember).filter(SkillMember.group_id == group_id,
                                   SkillMember.user_id == user_id).delete(synchronize_session=False)
     db.commit()
