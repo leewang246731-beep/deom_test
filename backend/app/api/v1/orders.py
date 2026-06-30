@@ -85,14 +85,72 @@ def remind_pending(
     mid: int = Depends(get_effective_merchant_id),
     db: Session = Depends(get_db),
 ):
-    """批量催单：支持分页（缺口4），limit 不超过 .env CAMPAIGN_MAX_PER_REQUEST。"""
-    try:
-        from app.services.ai_suggest import generate_payment_reminders
-        limit = min(body.limit or 20, 50)
-        result = generate_payment_reminders(mid, body.shop_id, db, limit=limit, offset=body.offset or 0)
-        return ok(result)
-    except Exception as e:
-        return ok({"reminders": [], "count": 0, "total_pending": 0, "has_more": False, "note": f"AI 催单待步骤6 接入: {e}"})
+    """批量催单：AI 生成话术 → 冷却检查 → 落库 → real+vmall 外发。"""
+    from app.services.ai_suggest import generate_payment_reminders
+    from app.core.platform_connector.vmall import V3Connector
+    from app.core.platform_connector.runner import run_connector
+    from app.models.order_reminder import OrderReminder
+    from datetime import datetime
+
+    r = get_redis()
+    limit = min(body.limit or 20, 50)
+    reminders_data = generate_payment_reminders(mid, body.shop_id, db, limit=limit, offset=body.offset or 0)
+    reminders = reminders_data.get("reminders", [])
+
+    sent_count = 0
+    skipped_count = 0
+    enriched = []
+
+    for rem in reminders:
+        order_id = rem.get("order_id")
+        buyer_openid = rem.get("buyer_openid", "")
+        content = rem.get("script", "")
+
+        # 冷却检查
+        cooldown_key = mkey(mid, "remind", str(order_id))
+        if r.exists(cooldown_key):
+            skipped_count += 1
+            rem["skipped"] = True
+            enriched.append(rem)
+            continue
+
+        # 落库发送记录
+        db.add(OrderReminder(
+            merchant_id=mid, shop_id=body.shop_id, order_id=order_id,
+            buyer_openid=str(buyer_openid), content=content, channel="vmall",
+            sent_at=datetime.now(),
+        ))
+
+        # real 模式 + vmall → 外发通知
+        if settings.PLATFORM_MODE == "real":
+            shop = db.query(PlatformShop).filter(PlatformShop.id == body.shop_id).first()
+            if shop and shop.platform_type == "vmall" and shop.access_token:
+                connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+                ok, _, err = run_connector(
+                    connector.send_notification(int(buyer_openid) if buyer_openid else 0, order_id, content)
+                )
+                if not ok:
+                    rem["send_error"] = err
+            else:
+                rem["send_error"] = "not vmall or no token"
+        else:
+            rem["channel"] = "local"
+
+        # 设冷却
+        r.set(cooldown_key, "1", ex=settings.REMINDER_COOLDOWN_SECONDS)
+        sent_count += 1
+        rem["skipped"] = False
+        enriched.append(rem)
+
+    db.commit()
+
+    return ok({
+        "reminders": enriched,
+        "sent_count": sent_count,
+        "skipped_count": skipped_count,
+        "total_pending": reminders_data.get("total_pending", 0),
+        "has_more": len(reminders) >= limit,
+    })
 
 
 @router.get("/export")
