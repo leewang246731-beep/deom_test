@@ -58,9 +58,12 @@ def receive_saas_reply(conv_id: int, body: dict, db: Session = Depends(get_db)):
     c = db.query(VmConversation).filter(VmConversation.id == conv_id).first()
     if not c:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    content_json = {"text": body.get("content", "")}
+    if body.get("card"):
+        content_json["card"] = body["card"]
     msg = VmMessage(conversation_id=conv_id, sender_role="admin",
                     msg_type=body.get("msg_type", "text"),
-                    content_json={"text": body.get("content", "")})
+                    content_json=content_json)
     db.add(msg)
     c.last_message_at = datetime.now()
     db.commit()
@@ -81,9 +84,11 @@ def send_message(conv_id: int, body: dict, authorization: str = Header(None),
 
     buyer = db.query(VmBuyer).filter(VmBuyer.id == buyer_id).first()
     mi = _merchant_info(db, conv_id)
+    _content = body.get("content", {"text": body.get("text", "")})
     dispatch_sync(db, "NEW_MESSAGE", {
         "conversation_id": conv_id, "sender_role": "buyer",
-        "content": body.get("content", {}),
+        "content": _content,
+        "card": _content.get("card") if isinstance(_content, dict) else None,
         "msg_type": body.get("msg_type", "text"),
         "buyer_nick": buyer.nickname if buyer else f"买家{buyer_id}",
         "buyer_id": buyer_id,
