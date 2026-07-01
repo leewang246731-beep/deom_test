@@ -9,6 +9,7 @@ from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import get_db, SessionLocal
 from app.models.vm_order import VmOrder
+from app.models.vm_buyer import VmBuyer
 from app.models.vm_order_item import VmOrderItem
 from app.models.vm_product import VmProduct
 from app.models.vm_wallet import VmWallet, VmWalletTransaction
@@ -112,7 +113,9 @@ def _order_json(order: VmOrder, items: list, db: Session) -> dict:
     sku_details = [{"title": "", "sku_code": i.sku_code, "sku_spec": i.sku_spec,
                      "unit_price": float(i.unit_price), "quantity": i.quantity, "product_id": i.product_id}
                     for i in items]
+    buyer = db.query(VmBuyer).get(order.buyer_id)
     return {"id": order.id, "order_no": order.order_no, "buyer_id": order.buyer_id,
+            "buyer_nick": buyer.nickname if buyer else "",
             "total_amount": float(order.total_amount), "pay_amount": float(order.pay_amount),
             "discount_amount": float(order.discount_amount or 0),
             "status": order.status, "after_sale_status": order.after_sale_status,
