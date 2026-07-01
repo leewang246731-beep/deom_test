@@ -232,11 +232,14 @@ def _handle_message(db: Session, data: dict):
         text = content.get("text", str(content))
     else:
         text = str(content)
-    msgs.append({
+    msg_entry = {
         "role": data.get("sender_role", "buyer"),
         "content": text,
         "time": data.get("created_at") or datetime.now().isoformat(),
-    })
+    }
+    if data.get("card"):
+        msg_entry["card"] = data["card"]
+    msgs.append(msg_entry)
     conv.messages_json = msgs
     conv.last_message_at = datetime.now()
     if data.get("sender_role") == "buyer":

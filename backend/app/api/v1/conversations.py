@@ -17,9 +17,11 @@ from app.core.response import ok, page
 from app.core.security import decode_token
 from app.database.session import SessionLocal, get_db
 from app.models.conversation import Conversation
+from app.models.external_order import ExternalOrder
 from app.models.external_product import ExternalProduct
 from app.models.platform_shop import PlatformShop
 from app.schemas import ConversationMessageSend
+from app.services.card_builder import restore_vm_product_id
 
 router = APIRouter(tags=["客服工作台"])
 ws_router = APIRouter(tags=["客服工作台-WS"])  # 无 /api/v1 前缀，挂根路径
@@ -135,7 +137,12 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
     if c.product_id:
         ep = db.query(ExternalProduct).filter(ExternalProduct.id == c.product_id).first()
         if ep:
-            product_info = {"id": ep.id, "title": ep.title, "price": float(ep.price), "stock": ep.stock}
+            product_info = {
+                "id": ep.id,
+                "vm_product_id": restore_vm_product_id(ep.platform_product_id),
+                "title": ep.title, "price": float(ep.price), "stock": ep.stock,
+                "image": (ep.images_json or [None])[0] if ep.images_json else None,
+            }
     return ok({
         "id": c.id, "shop_id": c.shop_id, "buyer_nick": c.buyer_nick,
         "product_id": c.product_id, "product": product_info,
@@ -145,6 +152,30 @@ def conversation_detail(conv_id: int, current: CurrentUser = Depends(get_current
         "current_mode": c.current_mode, "auto_reply_count": c.auto_reply_count,
         "assigned_to": c.assigned_to,
     })
+
+
+@router.get("/conversations/{conv_id}/buyer-orders")
+def buyer_orders(conv_id: int, current: CurrentUser = Depends(get_current_user),
+                 mid: int = Depends(get_effective_merchant_id), db: Session = Depends(get_db)):
+    """返回会话买家的订单（按 buyer_nick 尽力匹配；匹配不到降级为店铺近期订单）。"""
+    shop_ids = _merchant_shop_ids(db, mid)
+    c = db.query(Conversation).filter(
+        Conversation.id == conv_id,
+        Conversation.shop_id.in_(shop_ids) if shop_ids else True,
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    q = db.query(ExternalOrder).filter(ExternalOrder.shop_id == c.shop_id)
+    matched = q.filter(ExternalOrder.buyer_nick == c.buyer_nick).order_by(
+        ExternalOrder.created_at.desc()).limit(10).all() if c.buyer_nick else []
+    if not matched:
+        matched = q.order_by(ExternalOrder.created_at.desc()).limit(10).all()
+    return ok([
+        {"order_no": o.platform_order_id, "status": o.status,
+         "amount": float(o.pay_amount or 0),
+         "created_at": o.created_at.isoformat() if o.created_at else None}
+        for o in matched
+    ])
 
 
 @router.post("/conversations/{conv_id}/assign")
@@ -173,7 +204,10 @@ def send_conversation_message(conv_id: int, body: ConversationMessageSend, curre
     content = body.content
     now = datetime.now()
     msgs = list(c.messages_json or [])
-    msgs.append({"role": "service", "content": content, "time": now.strftime("%Y-%m-%d %H:%M:%S")})
+    msg_entry = {"role": "service", "content": content, "time": now.strftime("%Y-%m-%d %H:%M:%S")}
+    if body.card:
+        msg_entry["card"] = body.card
+    msgs.append(msg_entry)
     c.messages_json = msgs
     c.last_message_at = now
     c.handled_status = "replied"
@@ -195,14 +229,17 @@ def send_conversation_message(conv_id: int, body: ConversationMessageSend, curre
         target = f"{vmall_url}/api/v1/consumer/conversations/{vmall_conv_id}/messages/internal"
         try:
             import requests as _r
-            _r.post(
-                target,
-                json={"api_key": "vmall-internal-demo-key", "content": content, "msg_type": "text"},
-                timeout=5,
-            )
+            _fwd = {"api_key": "vmall-internal-demo-key", "content": content, "msg_type": "text"}
+            if body.card:
+                _fwd["card"] = body.card
+                _fwd["msg_type"] = body.card.get("type", "text") + "_card"
+            _r.post(target, json=_fwd, timeout=5)
         except Exception:
             pass
-    return ok({"id": c.id, "messages_json": [{"role": m["role"], "content": m["content"], "time": m.get("time", "")} for m in msgs]})
+    return ok({"id": c.id, "messages_json": [
+        {"role": m["role"], "content": m["content"], "time": m.get("time", ""), "card": m.get("card")}
+        for m in msgs
+    ]})
 
 
 @router.post("/conversations/{conv_id}/close")

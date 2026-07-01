@@ -291,6 +291,7 @@ class RefundRequest(BaseModel):
 class ConversationMessageSend(BaseModel):
     content: str
     msg_type: Optional[str] = "text"
+    card: Optional[dict] = None
 
 
 # ===== OpenAPI (vMall 集成) =====
