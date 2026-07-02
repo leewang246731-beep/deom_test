@@ -41,7 +41,14 @@ def _resolve_shop(db: Session, data: dict):
 
 @router.post("/vmall")
 async def vmall_webhook(request: Request):
-    """接收 vMall Webhook 推送。"""
+    """接收 vMall Webhook 推送。验证签名防伪造。"""
+    # 验证 webhook 签名
+    signature = request.headers.get("X-Webhook-Signature", "")
+    from app.core.config import settings
+    expected_sig = getattr(settings, "WEBHOOK_SECRET", "")
+    if expected_sig and signature != expected_sig:
+        raise HTTPException(status_code=403, detail={"code": 40300, "msg": "签名验证失败"})
+
     body = await request.json()
     event = request.headers.get("X-Event-Type", body.get("event", ""))
     data = body.get("data", {})
@@ -86,6 +93,20 @@ async def vmall_webhook(request: Request):
                     if exist:
                         exist.after_sale_id = sale_id
                         exist.after_sale_status = "created"
+                        db.commit()
+        elif event == "AFTER_SALE_APPROVED":
+            # 售后审核通过 → 更新 ExternalOrder 售后状态
+            order_no = data.get("order_no") or str(data.get("order_id", ""))
+            sale_id = data.get("id")
+            if order_no:
+                shop = _resolve_shop(db, data)
+                if shop:
+                    exist = db.query(ExternalOrder).filter(
+                        ExternalOrder.shop_id == shop.id,
+                        ExternalOrder.platform_order_id == order_no,
+                    ).first()
+                    if exist:
+                        exist.after_sale_status = "approved"
                         db.commit()
         else:
             status = "ignored"

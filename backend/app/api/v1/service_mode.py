@@ -60,6 +60,11 @@ def set_conv_mode(conv_id: int, body: ConversationModeSwitch, current: CurrentUs
     conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
     if not conv:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    # 跨租户校验：会话必须属于当前商户
+    from app.models.platform_shop import PlatformShop
+    shop = db.query(PlatformShop).filter(PlatformShop.id == conv.shop_id).first()
+    if not shop or shop.merchant_id != mid:
+        raise HTTPException(status_code=403, detail={"code": 40301, "msg": "无权操作此会话"})
     mode = body.mode
     if mode not in ("manual", "copilot", "auto"):
         raise HTTPException(status_code=400, detail={"code": 40001, "msg": "模式必须为 manual/copilot/auto"})
@@ -74,6 +79,11 @@ def takeover(conv_id: int, current: CurrentUser = Depends(get_current_user),
     conv = db.query(Conversation).filter(Conversation.id == conv_id).first()
     if not conv:
         raise HTTPException(status_code=404, detail={"code": 40401, "msg": "会话不存在"})
+    # 跨租户校验
+    from app.models.platform_shop import PlatformShop
+    shop = db.query(PlatformShop).filter(PlatformShop.id == conv.shop_id).first()
+    if not shop or shop.merchant_id != mid:
+        raise HTTPException(status_code=403, detail={"code": 40301, "msg": "无权操作此会话"})
     switch_mode(db, conv, "copilot", "人工接管")
     clear_pending_timeout(db, conv)
     conv.assigned_to = current.user_id

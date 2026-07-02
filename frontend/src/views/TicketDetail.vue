@@ -139,8 +139,21 @@ async function doStatus() {
 }
 
 function goBack() {
-  if (window.history.length > 2) router.back()
-  else router.push('/tickets')
+  // 根据当前端口判断上下文，避免跳转到不存在的路由
+  const port = window.location.port
+  if (port === '8095') {
+    // 客服工作台 → 返回会话列表
+    if (window.history.length > 2) router.back()
+    else router.push('/service/workbench')
+  } else if (port === '8094') {
+    // 商户工作台 → 返回工单列表
+    if (window.history.length > 2) router.back()
+    else router.push('/merchant/tickets')
+  } else {
+    // 平台管理后台
+    if (window.history.length > 2) router.back()
+    else router.push('/admin/tickets')
+  }
 }
 
 async function doAssign() {

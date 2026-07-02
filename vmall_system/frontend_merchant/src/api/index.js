@@ -27,6 +27,12 @@ export const sendMessage = (convId, data) => http.post(`/merchant/conversations/
 export const getSettings = () => http.get('/merchant/settings')
 export const updateSettings = (data) => http.put('/merchant/settings', data)
 
+// ---- wallet ----
+export const getWallet = () => http.get('/merchant/wallet')
+export const getWalletTransactions = (params) => http.get('/merchant/wallet/transactions', { params })
+export const applyWithdraw = (data) => http.post('/merchant/wallet/withdraw', data)
+export const getMyWithdrawals = (params) => http.get('/merchant/wallet/withdrawals', { params })
+
 // ---- binding ----
 export const applyBinding = (data) => http.post('/merchant/binding/apply', data)
 export const confirmBinding = (data) => http.post('/merchant/binding/confirm', data)

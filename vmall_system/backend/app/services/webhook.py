@@ -25,11 +25,17 @@ async def dispatch(db_factory, event_type: str, payload: dict):
         if not url:
             _log(db, event_type, payload, url, "skipped", None, "无 Webhook 地址")
             return
+        # 计算签名
+        import hmac, hashlib
+        from app.core.config import settings
+        secret = getattr(settings, "WEBHOOK_SECRET", "vmall-webhook-secret-2026")
+        body_str = __import__("json").dumps({"event": event_type, "data": payload}, ensure_ascii=False, default=str)
+        signature = hmac.new(secret.encode(), body_str.encode(), hashlib.sha256).hexdigest()
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 url,
                 json={"event": event_type, "data": payload, "timestamp": __import__("datetime").datetime.now().isoformat()},
-                headers={"X-Webhook-Source": "vmall", "X-Event-Type": event_type},
+                headers={"X-Webhook-Source": "vmall", "X-Event-Type": event_type, "X-Webhook-Signature": signature},
                 timeout=10,
             )
             if resp.status_code < 400:
@@ -75,12 +81,17 @@ def dispatch_sync(db: Session, event_type: str, payload: dict):
         import json as _json
         import urllib.request
         import urllib.error
+        import hmac, hashlib
         from datetime import datetime
+        from app.core.config import settings
         body = _json.dumps({"event": event_type, "data": payload,
                             "timestamp": datetime.now().isoformat()}).encode("utf-8")
+        secret = getattr(settings, "WEBHOOK_SECRET", "vmall-webhook-secret-2026")
+        signature = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Content-Type": "application/json",
-            "X-Webhook-Source": "vmall", "X-Event-Type": event_type})
+            "X-Webhook-Source": "vmall", "X-Event-Type": event_type,
+            "X-Webhook-Signature": signature})
         try:
             resp = urllib.request.urlopen(req, timeout=10)
             _log(db, event_type, payload, url, "success", resp.status, "")

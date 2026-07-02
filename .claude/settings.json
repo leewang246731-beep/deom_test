@@ -422,7 +422,8 @@
       "Bash(MSYS_NO_PATHCONV=1 docker cp test_edge_cases.py saas-backend:/app/test_edge_cases.py)",
       "Bash(python seed.py --backfill --full)",
       "Bash(python -m pytest tests/ -q --tb=short)",
-      "Bash(python -m pytest tests/ -q)"
+      "Bash(python -m pytest tests/ -q)",
+      "Bash(xargs -n1 basename)"
     ],
     "additionalDirectories": [
       "d:\\d\\demo_test\\backend\\app\\api"

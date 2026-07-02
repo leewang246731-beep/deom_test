@@ -42,6 +42,7 @@ export const getOrder = (id) => http.get(`/consumer/orders/${id}`)
 // after-sales
 export const applyAfterSale = (d) => http.post('/consumer/after-sales', d)
 export const getAfterSale = (id) => http.get(`/consumer/after-sales/${id}`)
+export const shipReturnAfterSale = (id, d) => http.post(`/consumer/after-sales/${id}/ship-return`, d)
 
 // conversations
 export const createConv = (d) => http.post('/consumer/conversations', d)

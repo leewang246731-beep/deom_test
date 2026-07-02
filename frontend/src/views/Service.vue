@@ -29,7 +29,7 @@
               <el-option label="辅助 copilot" value="copilot" />
               <el-option label="全自动 auto" value="auto" />
             </el-select>
-            <span v-if="activeConv.product" style="font-size:12px;color:#409eff;cursor:pointer" @click="$router.push('/products/'+activeConv.product.id)">
+            <span v-if="activeConv.product" style="font-size:12px;color:#409eff;cursor:pointer" @click="openProduct(activeConv.product)">
               📦 {{ activeConv.product.title }} (¥{{ activeConv.product.price }})
             </span>
             <span v-else style="font-size:12px;color:#909399">产品ID: {{ activeConv.product_id || '未绑定' }}</span>
@@ -271,6 +271,20 @@ async function sendProductCard() {
     activeConv.value.messages_json = res.data?.messages_json || []
     ElMessage.success('已发送商品卡片')
   } catch { /* error shown by interceptor */ }
+}
+
+function openProduct(product) {
+  // 根据端口判断上下文，避免跳转到不存在的路由
+  const port = window.location.port
+  if (port === '8094') {
+    // 商户工作台 → 跳转到商户商品列表并高亮
+    $router.push({ path: '/merchant/products', query: { highlight: product.id } })
+  } else if (port === '8095') {
+    // 客服工作台 → 无商品详情页，显示提示
+    ElMessage.info(`${product.title} (¥${product.price}) — 商品ID: ${product.id}`)
+  } else {
+    $router.push({ path: '/admin/products', query: { highlight: product.id } })
+  }
 }
 
 async function fetchBuyerOrders() {

@@ -134,7 +134,9 @@ def scheduler_status():
 
 
 @router.post("/trigger-sync")
-async def trigger_sync_all():
+async def trigger_sync_all(
+    current: CurrentUser = Depends(require_roles("admin", "manager")),
+):
     from app.services.scheduler import trigger_sync_all
     import asyncio
     asyncio.create_task(trigger_sync_all())

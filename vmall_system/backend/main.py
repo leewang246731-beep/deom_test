@@ -68,6 +68,8 @@ from app.api.admin.conversations import router as admin_convs
 from app.api.admin.settings import router as admin_settings
 from app.api.admin.logistics import router as admin_logistics
 from app.api.admin.wallet import router as admin_wallet
+from app.api.admin.merchant_wallets import router as admin_merchant_wallets
+from app.api.admin.withdrawals import router as admin_withdrawals
 
 from app.api.merchant.auth import router as merchant_auth
 from app.api.merchant.dashboard import router as merchant_dashboard
@@ -76,18 +78,20 @@ from app.api.merchant.orders import router as merchant_orders
 from app.api.merchant.conversations import router as merchant_convs
 from app.api.merchant.settings import router as merchant_settings
 from app.api.merchant.binding import router as merchant_binding
+from app.api.merchant.wallet import router as merchant_wallet
 
 from app.api.openapi.router import router as openapi_router
 from app.api.openapi.logistics import router as openapi_logistics
 
 v1_routers = [consumer_auth, consumer_products, consumer_orders, consumer_convs, consumer_as, consumer_profile, consumer_paylink,
               admin_auth, admin_orders, admin_as, admin_convs, admin_settings, admin_logistics, admin_wallet,
+              admin_merchant_wallets, admin_withdrawals,
               merchant_auth, merchant_dashboard, merchant_products, merchant_orders, merchant_convs,
-              merchant_settings, merchant_binding]
+              merchant_settings, merchant_binding, merchant_wallet]
 for r in v1_routers:
     app.include_router(r, prefix="/api/v1")
-app.include_router(openapi_router)
-app.include_router(openapi_logistics)
+app.include_router(openapi_router, prefix="/api/v1")
+app.include_router(openapi_logistics, prefix="/api/v1")
 
 
 if __name__ == "__main__":

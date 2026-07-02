@@ -57,6 +57,15 @@ export const getWalletTx = (buyerId, p) => http.get(`/admin/wallets/${buyerId}/t
 export const getSettings = () => http.get('/admin/settings')
 export const updateSettings = (d) => http.put('/admin/settings', d)
 
+// merchant wallets (admin monitoring)
+export const getMerchantWallets = (p) => http.get('/admin/merchant-wallets', { params: p })
+export const getMerchantWalletTx = (merchantId, p) => http.get(`/admin/merchant-wallets/${merchantId}/transactions`, { params: p })
+
+// withdrawals (admin approval)
+export const getWithdrawals = (p) => http.get('/admin/withdrawals', { params: p })
+export const approveWithdrawal = (id) => http.post(`/admin/withdrawals/${id}/approve`)
+export const rejectWithdrawal = (id, d) => http.post(`/admin/withdrawals/${id}/reject`, d)
+
 // logistics
 export const getLogistics = (orderId) => http.get(`/admin/logistics/${orderId}`)
 export const shipLogistics = (orderId, d) => http.post(`/admin/logistics/${orderId}/ship`, d)

@@ -206,6 +206,76 @@ def build_check_logistics_tool(merchant_id: int):
     return check_logistics
 
 
+def build_track_order_logistics_tool(merchant_id: int):
+    """根据订单ID查询物流轨迹（桥接查询订单→获取运单号→查询物流）。tag: logistics, order"""
+    @langchain_tool
+    def track_order_logistics(order_query: str) -> str:
+        """根据订单号或买家昵称查询该订单的物流轨迹。无需提供快递单号。
+
+        使用方式：传入订单号（如"ORD123"）或买家昵称，工具会自动查找订单并追踪物流。
+
+        返回该订单的物流状态、快递公司、运单号、当前位置和预计送达时间。
+        """
+        db = SessionLocal()
+        try:
+            sids = _shop_ids(db, merchant_id)
+            if not sids:
+                return "该商户暂无店铺数据"
+            q = db.query(ExternalOrder).filter(ExternalOrder.shop_id.in_(sids))
+            if order_query.isdigit():
+                q = q.filter(
+                    (ExternalOrder.id == int(order_query)) |
+                    (ExternalOrder.platform_order_id == order_query)
+                )
+            else:
+                q = q.filter(ExternalOrder.buyer_nick.like(f"%{order_query}%"))
+            orders = q.order_by(ExternalOrder.created_at.desc()).limit(3).all()
+            if not orders:
+                return f"未找到与'{order_query}'相关的订单，请确认订单号或买家昵称"
+
+            results = []
+            for o in orders:
+                tracking_no = None
+                # 尝试从 vmall 获取运单号
+                try:
+                    from app.core.platform_connector.runner import run_connector
+                    shop = db.query(PlatformShop).filter(
+                        PlatformShop.merchant_id == merchant_id,
+                        PlatformShop.platform_type == "vmall",
+                    ).first()
+                    if shop and shop.access_token:
+                        from app.core.platform_connector.vmall import V3Connector
+                        connector = V3Connector(shop.shop_url or "http://127.0.0.1:8020", shop.access_token)
+                        ok, data, err = run_connector(connector.get_logistics_by_order(o.platform_order_id))
+                        if ok and data:
+                            tracking_no = data.get("tracking_no", "")
+                            results.append(
+                                f"订单{o.platform_order_id}: 快递{data.get('company','?')} "
+                                f"单号{tracking_no} 状态{data.get('status','?')} "
+                                f"节点{data.get('current_node','?')} 预计{data.get('estimated_days','?')}天"
+                            )
+                            continue
+                except Exception:
+                    pass
+
+                # Mock fallback: generate a fake tracking number from order info
+                import random, hashlib
+                companies = ["顺丰速运", "中通快递", "圆通速递", "韵达快递", "京东物流"]
+                nodes = ["已揽件", "运输中", "到达中转站", "到达目的地分拣中心", "派送中", "已签收"]
+                mock_tn = "SF" + hashlib.md5(o.platform_order_id.encode()).hexdigest()[:10].upper()
+                results.append(
+                    f"订单{o.platform_order_id}({o.buyer_nick}): "
+                    f"快递{random.choice(companies)} 单号{mock_tn} "
+                    f"状态{random.choice(nodes)} 预计{random.randint(1,5)}天 "
+                    f"（Mock演示模式）"
+                )
+
+            return "\n".join(results)
+        finally:
+            db.close()
+    return track_order_logistics
+
+
 # ===== Phase C 新增业务工具 =====
 
 def build_deliver_order_tool(merchant_id: int):
@@ -390,6 +460,7 @@ def init_registry(merchant_id: int) -> ToolRegistry:
 
     registry.register(build_query_order_tool(merchant_id), tags=["order", "query"])
     registry.register(build_check_logistics_tool(merchant_id), tags=["logistics", "query"])
+    registry.register(build_track_order_logistics_tool(merchant_id), tags=["logistics", "query", "order"])
     registry.register(build_search_product_tool(merchant_id), tags=["product", "knowledge", "search"])
     registry.register(build_check_inventory_tool(merchant_id), tags=["product", "inventory"])
     registry.register(build_search_ticket_tool(merchant_id), tags=["ticket", "knowledge", "search"])
