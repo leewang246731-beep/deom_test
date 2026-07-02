@@ -114,10 +114,8 @@
             <span style="color:#e6a23c;font-weight:bold;margin-left:4px">¥{{ r.product.price }}</span>
           </div>
           <p style="margin:4px 0 0;font-size:11px;color:#909399">{{ r.why }}</p>
-          <div style="margin-top:4px">
-            <el-button size="small" plain @click="sendProductCard">发送商品卡片</el-button>
-          </div>
         </div>
+        <el-button v-if="activeConv?.product?.vm_product_id" size="small" type="primary" plain style="width:100%;margin-top:4px" @click="sendProductCard">发送当前商品卡片</el-button>
         <el-empty v-if="activeConv && !recommendations.length && !recLoading" description="暂无推荐" :image-size="40" />
         <el-button size="small" style="width:100%;margin-top:4px" :loading="recLoading" @click="fetchRecommendations" :disabled="!activeConv">刷新推荐</el-button>
       </el-card>

@@ -59,6 +59,7 @@
 </template>
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'; import { useRoute, useRouter } from 'vue-router'; import { getMsgs, sendMsg, createConv, getMyOrders } from '../api'
+import { ElMessage } from 'element-plus'
 import axios from 'axios'
 const http = axios.create({ baseURL: '/api/v1', timeout: 15000 })
 http.interceptors.request.use(c => { const t = localStorage.getItem('vmall_token'); if (t) c.headers.Authorization = `Bearer ${t}`; return c })
@@ -114,8 +115,9 @@ async function askAboutOrder(o) {
   } catch { /* ok */ }
 }
 function openCard(card) {
-  if (card.type === 'product' && card.product_id) r.push(`/product/${card.product_id}`)
-  else r.push('/orders')
+  if (card.type === 'product' && card.product_id) { r.push(`/product/${card.product_id}`) }
+  else if (card.type === 'order') { r.push('/orders') }
+  else { ElMessage.warning('无法跳转，商品信息不完整') }
 }
 onMounted(async () => { await initConv(); await loadProduct(); await loadOrders(); await fetch(); pollTimer = setInterval(fetch, 2000) })
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
