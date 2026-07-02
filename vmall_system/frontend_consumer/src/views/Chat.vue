@@ -40,6 +40,11 @@
                   <div style="color:#e6a23c;font-weight:bold">¥{{ m.content_json.card.price }}</div>
                 </div>
               </div>
+              <div v-else-if="m.content_json.card.type==='payment_link'" style="font-size:13px;text-align:center">
+                <div style="font-size:18px;margin-bottom:4px">💳</div>
+                <div style="font-weight:bold;color:#e6a23c">¥{{ m.content_json.card.amount }}</div>
+                <div style="color:#303133;margin-top:2px">{{ m.content_json.card.title }}</div>
+              </div>
               <div v-else style="font-size:13px">
                 <div style="font-weight:bold">📦 订单 {{ m.content_json.card.order_no }}</div>
                 <div style="color:#909399">状态: {{ m.content_json.card.status }} · ¥{{ m.content_json.card.amount }}</div>
@@ -50,7 +55,7 @@
           <!-- 文本消息 -->
           <div v-else :style="{display:'inline-block',maxWidth:'70%',padding:'8px 12px',borderRadius:'8px',background:m.sender_role==='buyer'?'#409eff':'#f0f0f0',color:m.sender_role==='buyer'?'#fff':'#303133'}">
             <div style="font-size:11px;margin-bottom:2px;opacity:0.7">{{ m.sender_role === 'buyer' ? '我' : '客服' }}</div>
-            {{m.content_json?.text||fmtContent(m.content_json)}}</div>
+            <span v-html="renderText(m.content_json?.text||fmtContent(m.content_json))"></span></div>
         </div>
         <div v-if="!msgs.length" style="text-align:center;color:#909399;padding:60px 0">暂无消息，开始咨询吧</div>
       </div>
@@ -68,6 +73,10 @@ http.interceptors.response.use(r => r.data)
 const route=useRoute(); const r=useRouter(); const msgs=ref([]); const txt=ref(''); const chatBox=ref(null); const product=ref(null)
 const myOrders = ref([]); const orderPickerVisible = ref(false)
 function fmtContent(c) { try { return typeof c === 'string' ? c : JSON.stringify(c) } catch { return String(c || '') } }
+function renderText(t) {
+  // 将文本中的 URL 转为可点击链接
+  return String(t || '').replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" style="color:#409eff;text-decoration:underline">$1</a>')
+}
 let pollTimer = null; let convId = null
 
 async function initConv() {
@@ -116,7 +125,16 @@ async function askAboutOrder(o) {
 }
 function openCard(card) {
   if (card.type === 'product' && card.product_id) { r.push(`/product/${card.product_id}`) }
-  else if (card.type === 'order') { r.push('/orders') }
+  else if (card.type === 'payment_link' && card.url) {
+    // 付款链接：提取 token 后跳转到支付确认页
+    const token = card.url.split('/pay/')[1] || card.url.split('/').pop()
+    if (token) r.push(`/pay/${token}`)
+    else window.open(card.url, '_blank')
+  }
+  else if (card.type === 'order') {
+    // 跳转到订单列表并高亮对应订单
+    r.push({ path: '/orders', query: { highlight: card.order_no } })
+  }
   else { ElMessage.warning('无法跳转，商品信息不完整') }
 }
 onMounted(async () => { await initConv(); await loadProduct(); await loadOrders(); await fetch(); pollTimer = setInterval(fetch, 2000) })

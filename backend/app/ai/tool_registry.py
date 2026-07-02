@@ -419,4 +419,8 @@ def init_registry(merchant_id: int) -> ToolRegistry:
     registry.register(build_compress_memory_tool(merchant_id), tags=["profile", "memory", "action"])
     registry.register(build_profile_summary_tool(merchant_id), tags=["profile", "query"])
 
+    # 付款链接工具
+    from app.ai.payment_tools import build_generate_payment_link_tool
+    registry.register(build_generate_payment_link_tool(merchant_id), tags=["payment", "action", "order"])
+
     return registry

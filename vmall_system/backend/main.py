@@ -59,6 +59,7 @@ from app.api.consumer.orders import router as consumer_orders
 from app.api.consumer.conversations import router as consumer_convs
 from app.api.consumer.after_sales import router as consumer_as
 from app.api.consumer.profile import router as consumer_profile
+from app.api.consumer.payment_link import router as consumer_paylink
 
 from app.api.admin.auth import router as admin_auth
 from app.api.admin.orders import router as admin_orders
@@ -79,7 +80,7 @@ from app.api.merchant.binding import router as merchant_binding
 from app.api.openapi.router import router as openapi_router
 from app.api.openapi.logistics import router as openapi_logistics
 
-v1_routers = [consumer_auth, consumer_products, consumer_orders, consumer_convs, consumer_as, consumer_profile,
+v1_routers = [consumer_auth, consumer_products, consumer_orders, consumer_convs, consumer_as, consumer_profile, consumer_paylink,
               admin_auth, admin_orders, admin_as, admin_convs, admin_settings, admin_logistics, admin_wallet,
               merchant_auth, merchant_dashboard, merchant_products, merchant_orders, merchant_convs,
               merchant_settings, merchant_binding]

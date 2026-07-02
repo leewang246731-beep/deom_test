@@ -299,8 +299,8 @@ async function convertToTicket() {
       source: 'conversation', source_id: activeConv.value.id,
       priority: 'P2', buyer_openid: activeConv.value.buyer_nick,
     })
-    ElMessage.success(`工单 ${r.data.ticket_no} 已创建`)
-    router.push(`/tickets/${r.data.id}`)
+    ElMessage.success(`工单 ${r.data.ticket_no} 已创建，可在商户工作台「工单管理」中查看详情`)
+    // 客服工作台无独立工单详情页，不跳转避免白屏
   } catch { /* error shown */ } finally { converting.value = false }
 }
 

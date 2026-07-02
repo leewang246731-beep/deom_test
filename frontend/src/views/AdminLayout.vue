@@ -206,6 +206,7 @@ const menuItems = [
   { index: '/admin/ai-config', label: 'AI 配置', icon: Cpu },
   { index: '/admin/knowledge', label: '企业知识库', icon: Reading },
   { index: '/admin/live-monitor', label: '实时监控', icon: Monitor },
+  { index: '/admin/buyer-profiles', label: '用户画像', icon: UserFilled },
 ]
 
 const activeMenu = computed(() => {
@@ -222,6 +223,7 @@ const pageTitle = computed(() => {
     '/admin/webhook-logs': 'Webhook 监控', '/admin/sla-policies': 'SLA 策略',
     '/admin/ticket-categories': '工单分类', '/admin/ai-config': 'AI 配置',
     '/admin/knowledge': '企业知识库', '/admin/live-monitor': '实时监控',
+    '/admin/buyer-profiles': '用户画像',
   }
   if (route.path.startsWith('/admin/tickets/')) return '工单详情'
   if (route.path.startsWith('/admin/products/')) return '商品详情'

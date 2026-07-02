@@ -151,6 +151,7 @@ const menuItems = [
   { index: '/merchant/auto-reply-logs', label: 'AI 话术日志', icon: Notebook },
   { index: '/merchant/live-monitor', label: '实时监控', icon: Monitor },
   { index: '/merchant/connectors', label: '平台连接器', icon: Connection },
+  { index: '/merchant/buyer-profiles', label: '用户画像', icon: UserFilled },
 ]
 
 const activeMenu = computed(() => '/' + route.path.split('/').filter(Boolean).slice(0, 2).join('/'))
@@ -165,6 +166,7 @@ const pageTitle = computed(() => {
     '/merchant/recommendations': 'AI推荐', '/merchant/service-mode': '客服模式',
     '/merchant/users': '用户管理', '/merchant/auto-reply-logs': 'AI 话术日志',
     '/merchant/live-monitor': '实时监控', '/merchant/connectors': '平台连接器',
+    '/merchant/buyer-profiles': '用户画像',
   }
   if (route.path.startsWith('/merchant/tickets/')) return '工单详情'
   return map[route.path] || ''

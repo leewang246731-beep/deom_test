@@ -7,6 +7,7 @@ const routes = [
   { path: '/orders', name:'MyOrders', component:()=>import('../views/MyOrders.vue') },
   { path: '/profile', name:'Profile', component:()=>import('../views/Profile.vue') },
   { path: '/chat/:id', name:'Chat', component:()=>import('../views/Chat.vue') },
+  { path: '/pay/:token', name:'PayConfirm', component:()=>import('../views/Pay.vue'), meta:{public:true} },
 ]
 const router = createRouter({ history: createWebHashHistory(), routes })
 router.beforeEach(t => { if(!t.meta.public&&!localStorage.getItem('vmall_token')) return '/login' })

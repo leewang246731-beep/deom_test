@@ -635,9 +635,24 @@ async def seed():
             ])
             db.commit()
 
+            # 知识库种子（仅首次，幂等）
+            kb_result = {"docs": 0, "chunks": 0}
+            try:
+                from seed_kb import seed_kb_for_merchant, vectorize_documents, MERCHANT_DOCS, UNIVERSAL_DOCS
+                docs = UNIVERSAL_DOCS + MERCHANT_DOCS.get(cfg["name"], [])
+                if docs:
+                    kb_result["docs"] = seed_kb_for_merchant(db, mid, cfg["name"], docs)["created"]
+                    vec_r = vectorize_documents(db, mid)
+                    kb_result["chunks"] = vec_r["chunks"]
+            except Exception:
+                pass  # KB seed 非关键路径
+
+            db.commit()
+
             print(f"商户: {cfg['name']} (id={mid}, vmall_shop={vmall_shop_id})")
             print(f"  店铺: vmall({vmall['bind_status']}) + mock×{len(cfg['mocks'])} | 商品: {total_products} | 会话: {total_convs} | 订单: {total_orders} | 分类: {cat_count} | 工单: {ticket_count}")
             print(f"  优惠券: {coupon_result['policies']}策略 + {coupon_result['campaigns']}活动 | 推荐: {rec_result['profiles']}画像 + {rec_result['co_purchase']}共购 + {rec_result['rules']}规则")
+            print(f"  知识库: {kb_result['docs']}文档 + {kb_result['chunks']}切片")
 
         print("=" * 48)
         print("多商户种子数据生成成功！")

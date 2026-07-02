@@ -34,7 +34,9 @@ AGENT_KEYWORDS = [
     "订单", "物流", "快递", "发货", "到哪", "运输", "配送", "收货",
     "库存", "有货", "没货", "下架", "补货",
     "退款", "退货", "售后", "工单",
+    "购买", "下单", "付款", "支付", "链接", "买", "拍", "要了",
     "order", "logistics", "tracking", "shipping", "delivery", "stock", "inventory", "refund",
+    "buy", "pay", "purchase", "link",
 ]
 
 
@@ -139,6 +141,32 @@ async def get_ai_suggestions(
         except Exception:
             pass
 
+    # 兜底：若 product_id 未映射但 buyer_question 或 conversation_history 已包含【当前咨询商品】上下文
+    # （由 webhook _handle_message 注入到 messages_json），提取出来用作独立 product_context
+    fallback_product_title = ""
+    if not product_context:
+        # 1) 检查 buyer_question（来自 _maybe_auto_reply 的增强问题）
+        source_text = buyer_question
+        # 2) 检查 conversation_history 中 system 角色的上下文注入
+        if "【当前咨询商品】" not in source_text and conversation_history:
+            for h in reversed(conversation_history):
+                if h.get("role") == "system" and "【当前咨询商品】" in h.get("content", ""):
+                    source_text = h["content"]
+                    break
+        if "【当前咨询商品】" in source_text:
+            import re as _re
+            # 从 source_text 中提取完整的商品上下文块
+            _m = _re.search(r'【当前咨询商品】[^\n]*(?:\n- [^\n]*)*', source_text, _re.DOTALL)
+            if _m:
+                product_context = _m.group(0).strip()
+                _nm = _re.search(r'商品名:\s*(.+)', product_context)
+                if _nm:
+                    fallback_product_title = _nm.group(1).strip()
+                # 仅当上下文来自 buyer_question 时才需要清理（来自 history 的不影响 buyer_question）
+                if source_text is buyer_question:
+                    raw = buyer_question[_m.end():]
+                    buyer_question = _re.sub(r'^\n?用户问题:\s*', '', raw).strip()
+
     # ---- 角色 Prompt 注入 ----
     from app.services.mode_engine import get_role_prompt
     role_prompt = ""
@@ -183,6 +211,17 @@ async def get_ai_suggestions(
 
     vec = embed_query(buyer_question)
     products = query_products(merchant_id, vec, n_results=min(settings.RAG_TOP_K, 10))
+    # 若有 fallback 商品名，额外做一次语义检索并合并（提升当前商品在结果中的排位）
+    if fallback_product_title:
+        vec_title = embed_query(fallback_product_title)
+        title_products = query_products(merchant_id, vec_title, n_results=5)
+        # 浅合并：title_products 的 metadatas 追加到 products 中
+        for i, meta in enumerate(title_products.get("metadatas", [[]])[0]):
+            products["ids"][0].append(title_products["ids"][0][i] if i < len(title_products.get("ids", [[]])[0]) else f"title_{i}")
+            products["metadatas"][0].append(meta)
+            products["documents"][0].append(title_products.get("documents", [[]])[0][i] if i < len(title_products.get("documents", [[]])[0]) else "")
+            dist = title_products.get("distances", [[]])[0]
+            products["distances"][0].append(dist[i] if i < len(dist) else 1.0)
     replies = query_replies(merchant_id, vec, n_results=min(settings.RAG_TOP_K, 10))
 
     fused = _rrf_fusion(products, replies, k=60, top_n=5, current_product_id=product_id)
@@ -238,7 +277,14 @@ async def get_ai_suggestions(
 - 若提供了【当前咨询商品】，所有指代词默认指向该商品。仅当买家明确提到其他商品时才切换。
 - 若买家问物流相关，必须引用物流状态具体信息。
 - 客服的回复放在每条的最后，不要重复打招呼。
-用 --- 分隔三条建议。"""
+用 --- 分隔三条建议。
+
+【严格禁止】
+- 生成付款链接请使用 generate_payment_link 工具，禁止自行编造链接。
+- 严禁声称可以「发短信」「发邮件」「发站内信」。
+- 严禁声称已「修改订单」「备注」「加急」「指定快递」「添加赠品」「改价」。
+- 严禁编造任何价格、金额、券码、链接、二维码、折扣数字（工具返回的除外）。
+- 超出能力范围时，回复「我帮您转接人工专员处理」而不要自行承诺。"""
 
     try:
         response = await achat([{"role": "user", "content": prompt}])

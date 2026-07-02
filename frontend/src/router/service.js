@@ -10,8 +10,13 @@ const routes = [
       { path: '', redirect: '/service/workbench' },
       { path: 'workbench', name: 'ServiceWorkbench', component: () => import('../views/Service.vue') },
       { path: 'knowledge', name: 'ServiceKnowledge', component: () => import('../views/ServiceKnowledge.vue') },
+      { path: 'tickets/:id', name: 'ServiceTicketDetail', component: () => import('../views/TicketDetail.vue') },
     ],
   },
+
+  // 快捷路由：客服工作台内点击商品/工单链接不会白屏
+  { path: '/tickets/:id', redirect: to => `/service/tickets/${to.params.id}` },
+  { path: '/products/:id', redirect: () => '/service/workbench' },
 
   { path: '/', redirect: '/service/workbench' },
 ]

@@ -23,6 +23,7 @@ const routes = [
       { path: 'shops', name: 'MerchantShops', component: () => import('../views/Shops.vue') },
       { path: 'live-monitor', name: 'MerchantLiveMonitor', component: () => import('../views/LiveMonitor.vue') },
       { path: 'connectors', name: 'MerchantConnectors', component: () => import('../views/Connectors.vue') },
+      { path: 'buyer-profiles', name: 'MerchantBuyerProfiles', component: () => import('../views/BuyerProfiles.vue') },
     ],
   },
 

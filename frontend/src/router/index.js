@@ -28,6 +28,7 @@ const routes = [
       { path: 'webhook-logs', name: 'WebhookLogs', component: () => import('../views/WebhookLogs.vue') },
       { path: 'live-monitor', name: 'LiveMonitor', component: () => import('../views/LiveMonitor.vue') },
       { path: 'connectors', name: 'Connectors', component: () => import('../views/Connectors.vue') },
+      { path: 'buyer-profiles', name: 'BuyerProfiles', component: () => import('../views/BuyerProfiles.vue') },
     ],
   },
 

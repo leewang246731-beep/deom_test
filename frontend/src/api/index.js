@@ -80,6 +80,13 @@ export const deleteRecommendationRule = (id) => http.delete(`/recommendations/ru
 export const autoGenerateRules = (topK) => http.post(`/recommendations/rules/auto-generate?top_k=${topK || 20}`)
 export const rebuildCoPurchase = () => http.post('/recommendations/rebuild-co-purchase')
 
+// ---- buyer profiles ----
+export const getBuyerProfileStats = () => http.get('/buyer-profiles/stats')
+export const getBuyerProfiles = (params) => http.get('/buyer-profiles', { params })
+export const getBuyerProfileDetail = (userId) => http.get(`/buyer-profiles/${encodeURIComponent(userId)}`)
+export const updateBuyerProfileTags = (userId, tags) => http.put(`/buyer-profiles/${encodeURIComponent(userId)}/tags`, { tags })
+export const updateBuyerProfileFacts = (userId, facts) => http.put(`/buyer-profiles/${encodeURIComponent(userId)}/facts`, { facts })
+
 // ---- service mode ----
 export const getServiceModeConfig = () => http.get('/service-mode/config')
 export const updateServiceModeConfig = (data) => http.put('/service-mode/config', data)
