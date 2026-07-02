@@ -37,7 +37,20 @@
         </template>
         <div v-if="activeConv" style="flex:1;overflow-y:auto;padding-right:8px">
           <div v-for="(msg, i) in activeConv.messages_json || []" :key="i" :style="{marginBottom:'12px',textAlign:msg.role==='buyer'?'left':'right'}">
-            <div :style="{display:'inline-block',maxWidth:'70%',padding:'8px 14px',borderRadius:'8px',background:msg.role==='buyer'?'#f0f0f0':'#409eff',color:msg.role==='buyer'?'#303133':'#fff',textAlign:'left',wordBreak:'break-word'}">
+            <!-- 卡片消息 -->
+            <div v-if="msg.card" style="display:inline-block;max-width:75%;text-align:left">
+              <el-card shadow="hover" body-style="padding:8px">
+                <div v-if="msg.card.type==='product'" style="display:flex;gap:8px;align-items:center">
+                  <el-image v-if="msg.card.image" :src="msg.card.image" fit="cover" style="width:44px;height:44px;border-radius:6px" />
+                  <div><div style="font-weight:bold;font-size:13px">{{ msg.card.title }}</div>
+                    <div style="color:#e6a23c;font-weight:bold">¥{{ msg.card.price }}</div></div>
+                </div>
+                <div v-else style="font-size:13px"><div style="font-weight:bold">📦 订单 {{ msg.card.order_no }}</div>
+                  <div style="color:#909399">状态: {{ msg.card.status }} · ¥{{ msg.card.amount }}</div></div>
+              </el-card>
+            </div>
+            <!-- 文本消息 -->
+            <div v-else :style="{display:'inline-block',maxWidth:'70%',padding:'8px 14px',borderRadius:'8px',background:msg.role==='buyer'?'#f0f0f0':'#409eff',color:msg.role==='buyer'?'#303133':'#fff',textAlign:'left',wordBreak:'break-word'}">
               <div style="font-size:12px;margin-bottom:2px;opacity:0.7">{{ msg.role === 'buyer' ? activeConv.buyer_nick : '客服' }} · {{ msg.time?.slice(11, 16) || '' }}</div>
               {{ msg.content }}
             </div>
@@ -102,11 +115,23 @@
           </div>
           <p style="margin:4px 0 0;font-size:11px;color:#909399">{{ r.why }}</p>
           <div style="margin-top:4px">
-            <el-button size="small" plain @click="sendProductCard(r)">发送商品卡片</el-button>
+            <el-button size="small" plain @click="sendProductCard">发送商品卡片</el-button>
           </div>
         </div>
         <el-empty v-if="activeConv && !recommendations.length && !recLoading" description="暂无推荐" :image-size="40" />
         <el-button size="small" style="width:100%;margin-top:4px" :loading="recLoading" @click="fetchRecommendations" :disabled="!activeConv">刷新推荐</el-button>
+      </el-card>
+
+      <!-- 买家订单面板 -->
+      <el-card shadow="never" style="flex-shrink:0;max-height:200px;overflow:auto;margin-top:12px" body-style="padding:12px">
+        <template #header><span style="font-weight:bold">🧾 买家订单</span></template>
+        <div v-if="!activeConv"><el-empty description="选择会话后显示" :image-size="40" /></div>
+        <div v-else v-for="o in buyerOrders" :key="o.order_no" style="margin-bottom:8px;padding:8px;background:#fafafa;border-radius:6px;border:1px solid #ebeef5">
+          <div style="font-size:13px;font-weight:bold">{{ o.order_no }}</div>
+          <div style="font-size:11px;color:#909399">状态: {{ o.status }} · ¥{{ o.amount }}</div>
+          <el-button size="small" plain style="margin-top:4px" @click="sendOrderCard(o)">发送订单卡片</el-button>
+        </div>
+        <el-empty v-if="activeConv && !buyerOrders.length" description="无订单" :image-size="40" />
       </el-card>
     </div>
   </div>
@@ -115,7 +140,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage, setConvMode, exportCSV } from '../api'
+import { getConversations, getConversation, aiSuggest, aiSuggestLog, getSimilarProducts, createTicket, takeoverConv, sendConversationMessage, setConvMode, exportCSV, getBuyerOrders } from '../api'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
@@ -130,6 +155,7 @@ const aiLoading = ref(false)
 const pendingCount = ref(0)
 const recLoading = ref(false)
 const recommendations = ref([])
+const buyerOrders = ref([])
 const logistics = ref(null)
 const sending = ref(false)
 const converting = ref(false)
@@ -152,7 +178,9 @@ async function selectConv(c) {
     convMode.value = res.data?.current_mode || 'copilot'
     suggestions.value = []
     recommendations.value = []
+    buyerOrders.value = []
     fetchRecommendations()
+    fetchBuyerOrders()
   } catch { /* ok */ }
 }
 
@@ -231,14 +259,34 @@ async function fetchRecommendations() {
   } catch { /* ok */ } finally { recLoading.value = false }
 }
 
-async function sendProductCard(r) {
+async function sendProductCard() {
   if (!activeConv.value) return
+  const p = activeConv.value.product
+  if (!p || !p.vm_product_id) {
+    ElMessage.warning('该会话未绑定可跳转的商品，无法发送商品卡片')
+    return
+  }
+  const card = { type: 'product', product_id: p.vm_product_id, title: p.title,
+                 price: p.price, image: p.image || '', link: `/product/${p.vm_product_id}` }
   try {
-    const cardText = `[商品推荐] ${r.product.title}  ¥${r.product.price}\n${r.why}`
-    const res = await sendConversationMessage(activeConv.value.id, { content: cardText })
+    const res = await sendConversationMessage(activeConv.value.id, { content: `为您推荐：${p.title}`, card })
     activeConv.value.messages_json = res.data?.messages_json || []
     ElMessage.success('已发送商品卡片')
   } catch { /* error shown by interceptor */ }
+}
+
+async function fetchBuyerOrders() {
+  if (!activeConv.value) return
+  try { buyerOrders.value = (await getBuyerOrders(activeConv.value.id)).data || [] } catch { buyerOrders.value = [] }
+}
+async function sendOrderCard(o) {
+  if (!activeConv.value) return
+  const card = { type: 'order', order_no: o.order_no, status: o.status, amount: o.amount, link: '/orders' }
+  try {
+    const res = await sendConversationMessage(activeConv.value.id, { content: `订单 ${o.order_no}`, card })
+    activeConv.value.messages_json = res.data?.messages_json || []
+    ElMessage.success('已发送订单卡片')
+  } catch { /* error shown */ }
 }
 
 async function convertToTicket() {

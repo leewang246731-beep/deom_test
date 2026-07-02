@@ -51,6 +51,7 @@ export const getConversation = (id) => http.get(`/conversations/${id}`)
 export const assignConversation = (id) => http.post(`/conversations/${id}/assign`)
 export const closeConversation = (id) => http.post(`/conversations/${id}/close`)
 export const sendConversationMessage = (id, data) => http.post(`/conversations/${id}/messages`, data)
+export const getBuyerOrders = (id) => http.get(`/conversations/${id}/buyer-orders`)
 
 // ---- ai ----
 export const aiSuggest = (data) => http.post('/ai/suggest', data)
