@@ -163,6 +163,14 @@ def clear_business_data(db, merchant_id: int):
     # 清理买家画像
     from app.models.buyer_profile import BuyerProfile
     db.query(BuyerProfile).filter(BuyerProfile.merchant_id == merchant_id).delete(synchronize_session=False)
+    # 清理优惠券数据
+    from app.models.coupon import CompensationPolicy, MarketingCampaign, CouponGrantLog
+    db.query(CouponGrantLog).filter(CouponGrantLog.merchant_id == merchant_id).delete(synchronize_session=False)
+    db.query(MarketingCampaign).filter(MarketingCampaign.merchant_id == merchant_id).delete(synchronize_session=False)
+    db.query(CompensationPolicy).filter(CompensationPolicy.merchant_id == merchant_id).delete(synchronize_session=False)
+    # 清理长期记忆
+    from app.models.long_term_memory import LongTermMemory
+    db.query(LongTermMemory).filter(LongTermMemory.merchant_id == merchant_id).delete(synchronize_session=False)
     db.flush()
 
 
@@ -305,6 +313,178 @@ def build_categories(db, merchant_id: int):
     return len(name_to_id)
 
 
+# ===== 优惠券种子数据 =====
+
+def seed_coupons(db, merchant_id: int) -> dict:
+    """为商户创建补偿策略和营销活动。"""
+    from app.models.coupon import CompensationPolicy, MarketingCampaign
+
+    # 售后补偿策略（3 个场景）
+    policies = [
+        CompensationPolicy(
+            merchant_id=merchant_id, scenario="logistics_delay",
+            coupon_template_id="TPL_DELAY_10", max_amount=10.00,
+            max_times_per_order=1, cooldown_hours=24,
+            require_manual=False, is_active=True,
+        ),
+        CompensationPolicy(
+            merchant_id=merchant_id, scenario="quality_issue",
+            coupon_template_id="TPL_QUAL_15", max_amount=15.00,
+            max_times_per_order=1, cooldown_hours=48,
+            require_manual=False, is_active=True,
+        ),
+        CompensationPolicy(
+            merchant_id=merchant_id, scenario="service_complaint",
+            coupon_template_id="TPL_SVC_8", max_amount=8.00,
+            max_times_per_order=2, cooldown_hours=72,
+            require_manual=True, is_active=True,  # 人工审核
+        ),
+    ]
+    for p in policies:
+        db.add(p)
+    db.flush()
+
+    # 售前营销活动（3 个活动）
+    now = datetime.now()
+    campaigns = [
+        MarketingCampaign(
+            merchant_id=merchant_id, campaign_name="新用户首单优惠",
+            coupon_template_id="TPL_NEW_5", target_user_type="new_user",
+            max_issue_total=100, max_issue_per_user=1,
+            start_time=now - timedelta(days=7),
+            end_time=now + timedelta(days=30),
+            require_manual=False, is_active=True,
+        ),
+        MarketingCampaign(
+            merchant_id=merchant_id, campaign_name="VIP会员专享券",
+            coupon_template_id="TPL_VIP_20", target_user_type="vip",
+            max_issue_total=50, max_issue_per_user=1,
+            start_time=now - timedelta(days=1),
+            end_time=now + timedelta(days=60),
+            require_manual=False, is_active=True,
+        ),
+        MarketingCampaign(
+            merchant_id=merchant_id, campaign_name="全场通用满减券",
+            coupon_template_id="TPL_ALL_3", target_user_type="all",
+            max_issue_total=None, max_issue_per_user=3,
+            start_time=now - timedelta(days=1),
+            end_time=now + timedelta(days=90),
+            require_manual=False, is_active=True,
+        ),
+    ]
+    for c in campaigns:
+        db.add(c)
+    db.flush()
+
+    return {"policies": len(policies), "campaigns": len(campaigns)}
+
+
+# ===== 推荐系统种子数据 =====
+
+def seed_recommend_data(db, merchant_id: int, orders: list):
+    """基于已有订单数据初始化长期记忆画像和共购数据。"""
+    from collections import defaultdict
+    from app.models.long_term_memory import LongTermMemory
+    from app.models.product_co_purchase import ProductCoPurchase
+    from app.models.product_recommendation_rule import ProductRecommendationRule
+    from app.models.external_product import ExternalProduct
+
+    shop_ids = [r[0] for r in db.query(
+        __import__('app.models.platform_shop', fromlist=['PlatformShop']).PlatformShop.id
+    ).filter(
+        __import__('app.models.platform_shop', fromlist=['PlatformShop']).PlatformShop.merchant_id == merchant_id
+    ).all()]
+
+    if not shop_ids:
+        return {"profiles": 0, "co_purchase": 0, "rules": 0}
+
+    # 为每个 buyer_openid 生成长记忆画像
+    buyer_orders = defaultdict(list)
+    for o in orders:
+        buyer_orders[o.buyer_openid].append(o)
+
+    profile_count = 0
+    skin_types = ["油性", "干性", "敏感", "混合"]
+    budgets = ["100以内", "100-200", "200以上", "不限"]
+
+    for buyer_openid, buyer_orders_list in buyer_orders.items():
+        total_spent = sum(float(o.pay_amount or 0) for o in buyer_orders_list)
+        avg_amount = total_spent / len(buyer_orders_list) if buyer_orders_list else 0
+        categories = set()
+        for o in buyer_orders_list:
+            for sku in (o.sku_details_json or []):
+                title = sku.get("title", "") if isinstance(sku, dict) else ""
+                if title:
+                    categories.add(title[:20])
+
+        mem = LongTermMemory(
+            merchant_id=merchant_id,
+            user_id=buyer_openid,
+            facts={
+                "skin_type": random.choice(skin_types),
+                "budget": random.choice(budgets),
+            },
+            tags=list(categories)[:5] + [random.choice(["护肤", "数码", "女装", "美妆", "家居"])],
+            snippets=[{"text": f"用户咨询了{random.choice(list(categories)) if categories else '商品'}", "time": datetime.now().isoformat()}],
+            stats={
+                "order_count": len(buyer_orders_list),
+                "total_spent": round(total_spent, 2),
+                "avg_order_amount": round(avg_amount, 2),
+                "top_categories": list(categories)[:5],
+                "last_order_at": str(buyer_orders_list[0].created_at) if buyer_orders_list else None,
+            },
+            activity_level="active" if len(buyer_orders_list) >= 5 else "new",
+            last_conversation_at=datetime.now(),
+        )
+        db.add(mem)
+        profile_count += 1
+
+    # 共购关系（基于订单内的商品组合）
+    product_pairs = defaultdict(int)
+    for o in orders:
+        pids_in_order = set()
+        for sku in (o.sku_details_json or []):
+            title = sku.get("title", "") if isinstance(sku, dict) else ""
+            if title:
+                prod = db.query(ExternalProduct.id).filter(
+                    ExternalProduct.title == title,
+                    ExternalProduct.shop_id.in_(shop_ids),
+                ).first()
+                if prod:
+                    pids_in_order.add(prod[0])
+        pids_list = list(pids_in_order)
+        for i in range(len(pids_list)):
+            for j in range(i + 1, len(pids_list)):
+                product_pairs[(pids_list[i], pids_list[j])] += 1
+                product_pairs[(pids_list[j], pids_list[i])] += 1
+
+    co_count = 0
+    for (p1, p2), cnt in product_pairs.items():
+        if cnt >= 2:
+            db.add(ProductCoPurchase(product_id=p1, co_product_id=p2, co_count=cnt))
+            co_count += 1
+
+    # 手动推荐规则（前 5 个商品的交叉推荐）
+    all_products = db.query(ExternalProduct).filter(
+        ExternalProduct.shop_id.in_(shop_ids)
+    ).limit(10).all()
+    rule_count = 0
+    for i, p1 in enumerate(all_products[:5]):
+        for p2 in all_products[i+1:i+3]:
+            db.add(ProductRecommendationRule(
+                merchant_id=merchant_id,
+                product_id=p1.id,
+                recommended_product_id=p2.id,
+                rule_type="manual",
+                priority=random.randint(0, 5),
+                is_active=1,
+            ))
+            rule_count += 1
+
+    db.flush()
+    return {"profiles": profile_count, "co_purchase": co_count, "rules": rule_count}
+
+
 async def seed():
     Base.metadata.create_all(bind=engine, checkfirst=True)
     connector = MockPlatformConnector()
@@ -319,14 +499,24 @@ async def seed():
         # 清理可能残留的跨商户 FK 数据
         from app.models.service_mode import ServiceModeConfig, AutoReplyLog
         from app.models.ai_suggestion_log import AISuggestionLog
+        from app.models.ai_style_config import AIStyleConfig
         from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
+        from app.models.coupon import CompensationPolicy, MarketingCampaign, CouponGrantLog
+        from app.models.long_term_memory import LongTermMemory
+        from app.models.order_reminder import OrderReminder
         db.query(AutoReplyLog).delete()
         db.query(ServiceModeConfig).delete()
         db.query(AISuggestionLog).delete()
+        db.query(AIStyleConfig).delete()
         db.query(KbMessage).delete()
         db.query(KbChunk).delete()
         db.query(KbDocument).delete()
         db.query(KbConversation).delete()
+        db.query(CouponGrantLog).delete()
+        db.query(MarketingCampaign).delete()
+        db.query(CompensationPolicy).delete()
+        db.query(LongTermMemory).delete()
+        db.query(OrderReminder).delete()
         db.flush()
         for em in existing:
             db.query(Merchant).filter(Merchant.id == em.id).delete()
@@ -433,10 +623,21 @@ async def seed():
 
             cat_count = build_categories(db, mid)
             ticket_count = seed_tickets(db, mid, [u["username"] for u in USERS])
+
+            # 优惠券 + 推荐种子
+            coupon_result = seed_coupons(db, mid)
+            rec_result = seed_recommend_data(db, mid, [
+                o for o in db.query(ExternalOrder).filter(
+                    ExternalOrder.shop_id.in_(
+                        db.query(PlatformShop.id).filter(PlatformShop.merchant_id == mid).subquery()
+                    )
+                ).all()
+            ])
             db.commit()
 
             print(f"商户: {cfg['name']} (id={mid}, vmall_shop={vmall_shop_id})")
             print(f"  店铺: vmall({vmall['bind_status']}) + mock×{len(cfg['mocks'])} | 商品: {total_products} | 会话: {total_convs} | 订单: {total_orders} | 分类: {cat_count} | 工单: {ticket_count}")
+            print(f"  优惠券: {coupon_result['policies']}策略 + {coupon_result['campaigns']}活动 | 推荐: {rec_result['profiles']}画像 + {rec_result['co_purchase']}共购 + {rec_result['rules']}规则")
 
         print("=" * 48)
         print("多商户种子数据生成成功！")

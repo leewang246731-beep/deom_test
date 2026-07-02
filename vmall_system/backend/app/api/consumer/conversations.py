@@ -42,6 +42,33 @@ def create_conv(body: dict, authorization: str = Header(None), db: Session = Dep
         p = db.query(VmProduct).filter(VmProduct.id == pid).first()
         if p:
             merchant_id = p.merchant_id
+
+    # 同 buyer + 同 product 的未关闭会话复用，避免重复创建
+    if pid:
+        existing = db.query(VmConversation).filter(
+            VmConversation.buyer_id == buyer_id,
+            VmConversation.product_id == pid,
+            VmConversation.merchant_id == merchant_id,
+            VmConversation.status == "open",
+        ).order_by(VmConversation.last_message_at.desc()).first()
+        if existing:
+            existing.buyer_last_online = datetime.now()
+            db.commit()
+            return ok({"id": existing.id, "reused": True})
+
+    # 同 buyer + 同 order 的会话也复用
+    oid = body.get("order_id")
+    if oid:
+        existing = db.query(VmConversation).filter(
+            VmConversation.buyer_id == buyer_id,
+            VmConversation.order_id == oid,
+            VmConversation.status == "open",
+        ).order_by(VmConversation.last_message_at.desc()).first()
+        if existing:
+            existing.buyer_last_online = datetime.now()
+            db.commit()
+            return ok({"id": existing.id, "reused": True})
+
     c = VmConversation(buyer_id=buyer_id, merchant_id=merchant_id,
                         product_id=pid, order_id=body.get("order_id"),
                         buyer_ip_region=body.get("ip_region", "江苏·南京"),

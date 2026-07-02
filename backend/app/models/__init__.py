@@ -27,6 +27,8 @@ from app.models.audit_log import AuditLog
 from app.models.webhook_delivery_log import WebhookDeliveryLog
 from app.kb.models import KbDocument, KbChunk, KbConversation, KbMessage
 from app.models.order_reminder import OrderReminder
+from app.models.coupon import CompensationPolicy, MarketingCampaign, CouponGrantLog
+from app.models.long_term_memory import LongTermMemory
 
 __all__ = [
     "Merchant", "MerchantUser", "PlatformUser",
@@ -39,4 +41,6 @@ __all__ = [
     "AuditLog", "WebhookDeliveryLog",
     "KbDocument", "KbChunk", "KbConversation", "KbMessage",
     "OrderReminder",
+    "CompensationPolicy", "MarketingCampaign", "CouponGrantLog",
+    "LongTermMemory",
 ]

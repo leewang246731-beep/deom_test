@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     # ===== 催单冷却时间 =====
     REMINDER_COOLDOWN_SECONDS: int = 21600  # 6 hours
 
+    # ===== 优惠券 =====
+    ENABLE_AUTO_COUPON: bool = True  # 紧急情况可一键关闭 AI 自动发券，全部转人工
+
     @property
     def DATABASE_URL(self) -> str:
         """SQLAlchemy 连接串：mysql+pymysql://用户:密码@主机:端口/库名"""

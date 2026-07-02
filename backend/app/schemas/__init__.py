@@ -312,3 +312,57 @@ class RegisterShopRequest(BaseModel):
     shop_name: str
     contact_phone: Optional[str] = ""
     saas_url: Optional[str] = ""
+
+
+# ===== 优惠券 =====
+class CompensationPolicyCreate(BaseModel):
+    scenario: str = Field(..., description="补偿场景: logistics_delay / quality_issue / service_complaint")
+    coupon_template_id: str = Field(..., description="券系统模板ID")
+    max_amount: Optional[float] = None
+    max_times_per_order: Optional[int] = 1
+    cooldown_hours: Optional[int] = 24
+    require_manual: Optional[bool] = False
+    is_active: Optional[bool] = True
+
+
+class CompensationPolicyUpdate(BaseModel):
+    scenario: Optional[str] = None
+    coupon_template_id: Optional[str] = None
+    max_amount: Optional[float] = None
+    max_times_per_order: Optional[int] = None
+    cooldown_hours: Optional[int] = None
+    require_manual: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class MarketingCampaignCreate(BaseModel):
+    campaign_name: Optional[str] = ""
+    coupon_template_id: str = Field(..., description="券系统模板ID")
+    target_user_type: Optional[str] = "all"
+    max_issue_total: Optional[int] = None
+    max_issue_per_user: Optional[int] = 1
+    start_time: Optional[str] = None  # ISO datetime string
+    end_time: Optional[str] = None
+    require_manual: Optional[bool] = False
+    is_active: Optional[bool] = True
+
+
+class MarketingCampaignUpdate(BaseModel):
+    campaign_name: Optional[str] = None
+    coupon_template_id: Optional[str] = None
+    target_user_type: Optional[str] = None
+    max_issue_total: Optional[int] = None
+    max_issue_per_user: Optional[int] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    require_manual: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class CouponGrantQuery(BaseModel):
+    type: Optional[str] = None  # compensation / marketing
+    user_id: Optional[str] = None
+    order_id: Optional[str] = None
+    campaign_id: Optional[int] = None
+    page: Optional[int] = 1
+    page_size: Optional[int] = 20

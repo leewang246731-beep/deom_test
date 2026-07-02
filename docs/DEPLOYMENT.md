@@ -1,4 +1,4 @@
-# 部署指南 — 多平台智能托管 SaaS v2.1.3
+# 部署指南 — 多平台智能托管 SaaS v2.2.0
 
 ## 环境要求
 
@@ -209,9 +209,63 @@ OPENAPI_KEY=<shared-secret-with-vmall>
 :6379  Redis (内部)
 ```
 
-### 知识库文件上传
+## 优惠券系统（v2.2.0 新增）
 
-支持 12 种文档格式上传，自动解析→分块→向量化：
+### 功能概述
+
+- **售后补偿**：物流延迟 / 质量问题 / 服务投诉 3 种场景，自动校验订单状态+冷却期+次数上限
+- **售前营销**：新用户 / VIP / 全场 3 种活动类型，库存扣减+用户定向+每人限领
+- **Agent 集成**：LLM 自动判断意图，调用 `compensate` / `issue_promo` 工具发券
+- **降级开关**：`.env` 中 `ENABLE_AUTO_COUPON=False` 可一键关闭 AI 自动发券，全部转人工
+
+### API 端点
+
+```
+GET    /api/v1/coupons/compensation-policies    # 补偿策略列表
+POST   /api/v1/coupons/compensation-policies    # 创建策略
+PUT    /api/v1/coupons/compensation-policies/{id} # 更新策略
+DELETE /api/v1/coupons/compensation-policies/{id} # 删除策略
+GET    /api/v1/coupons/marketing-campaigns      # 营销活动列表
+POST   /api/v1/coupons/marketing-campaigns      # 创建活动
+PUT    /api/v1/coupons/marketing-campaigns/{id} # 更新活动
+DELETE /api/v1/coupons/marketing-campaigns/{id} # 删除活动
+GET    /api/v1/coupons/grant-logs               # 发放日志（支持按 type/user/order 筛选）
+GET    /api/v1/coupons/active-campaigns         # 当前有效活动
+```
+
+### 环境变量
+
+```ini
+ENABLE_AUTO_COUPON=True   # AI 自动发券开关，False 时全部转人工
+```
+
+## 增强商品推荐引擎（v2.2.0 新增）
+
+### 功能概述
+
+- **多维画像**：基础属性 + 兴趣标签 + 消费特征 + 偏好事实 + 近期意图 + 活跃度 6 维融合
+- **记忆压缩**：会话中提取关键信息（噪音过滤→LLM提取→合并长期记忆），Snippets 上限 5，Tags 上限 20
+- **多路召回**：标签向量 + 协同过滤 + 规则匹配 + 消费带 + 热门兜底 5 路并行
+- **策略排序**：个性化匹配(0.4) + 价格匹配(0.2) + 商户策略(0.2) + 时效性(0.2) 4 因子加权
+- **个性化理由**：基于画像与商品属性规则模板生成，避免 LLM 幻觉
+
+### Agent 工具
+
+```
+recommend(user_id, need_tags, top_k)         # 基于画像推荐商品
+get_profile_summary(user_id)                 # 获取用户多维画像摘要
+update_user_fact(user_id, key, value)        # 更新用户偏好事实
+compress_conversation_tool(user_id, snippet) # 记忆压缩（会话结束调用）
+```
+
+### 数据表
+
+- `long_term_memories` — 跨会话用户画像（facts/tags/snippets/stats）
+- 4 个 Agent 工具已注册到 ToolRegistry（tags: profile/recommendation/memory）
+
+## 会话去重（v2.2.0 修复）
+
+vMall 消费者端创建会话时，同 buyer + 同 product + status=open 的会话自动复用，避免同一商品重复创建会话窗口。已关闭的会话不受影响。
 ```
 PDF (.pdf)    — pypdf
 Word (.docx)  — python-docx

@@ -419,7 +419,9 @@
       "Bash(curl -s -o /dev/null -w \"saas:%{http_code} \" http://localhost:8012/api/v1/health)",
       "Bash(curl -s -o /dev/null -w \"vmall:%{http_code}\\\\n\" http://localhost:8020/docs)",
       "Bash(python -c \"import ast; ast.parse\\(open\\('backend/app/services/llm.py',encoding='utf-8'\\).read\\(\\)\\); ast.parse\\(open\\('backend/app/core/config.py',encoding='utf-8'\\).read\\(\\)\\); print\\('py OK'\\)\")",
-      "Bash(MSYS_NO_PATHCONV=1 docker cp test_edge_cases.py saas-backend:/app/test_edge_cases.py)"
+      "Bash(MSYS_NO_PATHCONV=1 docker cp test_edge_cases.py saas-backend:/app/test_edge_cases.py)",
+      "Bash(python seed.py --backfill --full)",
+      "Bash(python -m pytest tests/ -q --tb=short)"
     ],
     "additionalDirectories": [
       "d:\\d\\demo_test\\backend\\app\\api"

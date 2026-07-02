@@ -401,4 +401,22 @@ def init_registry(merchant_id: int) -> ToolRegistry:
     registry.register(build_get_buyer_profile_tool(merchant_id), tags=["buyer", "query"])
     registry.register(build_web_search_tool(merchant_id), tags=["web", "search", "knowledge"])
 
+    # 优惠券工具
+    from app.ai.coupon_tools import build_compensate_tool, build_issue_promo_tool, build_list_promos_tool
+    registry.register(build_compensate_tool(merchant_id), tags=["coupon", "action", "compensation"])
+    registry.register(build_issue_promo_tool(merchant_id), tags=["coupon", "action", "marketing"])
+    registry.register(build_list_promos_tool(merchant_id), tags=["coupon", "query", "marketing"])
+
+    # 增强推荐 + 画像工具
+    from app.ai.recommend_tools import (
+        build_recommend_tool,
+        build_update_fact_tool,
+        build_compress_memory_tool,
+        build_profile_summary_tool,
+    )
+    registry.register(build_recommend_tool(merchant_id), tags=["product", "recommendation", "profile"])
+    registry.register(build_update_fact_tool(merchant_id), tags=["profile", "action"])
+    registry.register(build_compress_memory_tool(merchant_id), tags=["profile", "memory", "action"])
+    registry.register(build_profile_summary_tool(merchant_id), tags=["profile", "query"])
+
     return registry
